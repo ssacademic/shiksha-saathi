@@ -341,6 +341,7 @@ function summarise(all) {
   s.notJudged = all.length - results.length;
   s.judgedBy = {}; results.forEach(r => { if (r.judgeModel) s.judgedBy[r.judgeModel] = (s.judgedBy[r.judgeModel] || 0) + 1; });
   s.graderFallbacks = results.filter(r => r.judgeTrail && r.judgeTrail.length > 1).length;
+  s.backupGraded = results.filter(r => r.judgeModel === MODELS.liteOld.id).length;
   if (s.notJudged) fails.push(`${s.notJudged} case(s) not graded — grader limit reached; run those categories again later`);
   s.releaseReady = fails.length === 0; s.blocking = fails;
   return s;
@@ -360,7 +361,7 @@ function openLab() {
       <div>${Object.entries(cats).map(([k, v]) => `<label style="margin-right:12px;"><input type="checkbox" class="lab-cat" value="${k}" checked/> ${k} ${v}</label>`).join('')}</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
         <label>Generator: the app's own models (3.5 Flash-Lite → 3.1) <input type="hidden" id="lab-gen" value="note"/></label>
-        <label>Judge <select id="lab-judge"><option value="flash" selected>Flash family 3.8 → 3.7 → 3.6 (recommended: different, stronger model)</option><option value="lite">3.5 Flash-Lite (same model that writes the notes — lenient)</option><option value="old">3.1 Flash-Lite (different model family)</option></select></label>
+        <label>Judge <select id="lab-judge"><option value="flash" selected>Flash graders 3.8 → 3.7 → 3.6 → 3.5 → 3 → 2.5, backup 3.1 Flash-Lite (recommended)</option><option value="lite">3.5 Flash-Lite (same model that writes the notes — lenient)</option><option value="old">3.1 Flash-Lite (different model family)</option></select></label>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
         <button class="btn-small" style="background:var(--accent);color:#fff;" id="lab-run" onclick="runEval()">Run eval</button>
@@ -370,12 +371,23 @@ function openLab() {
         <button class="btn-small" onclick="location.hash='';show('lab',false)">Close</button>
       </div>
     </div>
+    <div id="lab-blocks" class="hint" style="margin-bottom:10px;"></div>
     <div id="lab-summary"></div>
     <div id="lab-rubric" class="hidden card" style="padding:12px 14px;margin-bottom:12px;"></div>
     <div id="lab-out"></div></div>`;
   document.body.appendChild(el);
+  renderBlocks();
   renderEvalSummary();
 }
+const GRADER_EXTRA = ['gemini-3.7-flash', 'gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3-flash', 'gemini-3-flash-preview', 'gemini-2.5-flash'].map(id => ({ id, rpm:5, ...(id.startsWith('gemini-2.5') ? {} : { thinking:'low' }) }));
+function renderBlocks() {
+  const ids = [MODELS.flash.id, ...GRADER_EXTRA.map(m => m.id), MODELS.lite.id, MODELS.liteOld.id];
+  const used = ids.filter(dailyBlocked);
+  $('lab-blocks').innerHTML = used.length
+    ? `Marked "daily free limit used" today (resets at midnight US Pacific ≈ 12:30 pm IST): <b>${used.map(i => esc(i.replace('gemini-', ''))).join(', ')}</b>. <button class="btn-small" onclick="clearBlocks()">Clear marks and try again</button>`
+    : 'All models available today.';
+}
+function clearBlocks() { Object.keys(localStorage).filter(k => k.startsWith('ss_block_')).forEach(k => localStorage.removeItem(k)); renderBlocks(); }
 function showRubric() {
   const r = RUBRIC, box = $('lab-rubric');
   box.innerHTML = `<b>Gates</b> (any fail → case scores 0)<ul>${Object.entries(r.gates).map(([k, v]) => `<li><b>${k}</b>: ${esc(v)}</li>`).join('')}</ul>
@@ -395,13 +407,13 @@ function renderEvalSummary(live) {
     <p style="font-weight:600;font-size:15px;color:${cur.releaseReady ? '#2E7D4F' : 'var(--red)'};">${live ? '⏳ Running… ' : ''}${s ? '' : 'Last run: '}${cur.releaseReady ? '✅ Meets release bar' : '⛔ Not ready: ' + esc(cur.blocking.join(' · '))}</p>
     <p>Case expectations met <b>${Math.round((cur.expectMet || 0) * 100)}%</b> · Gates ${Math.round(cur.gatePass * 100)}%${d('gatePass')} · safety gates ${Math.round(cur.gatePassSafety * 100)}% · <b>note ${cur.noteMean ?? '–'}</b>${d('noteMean')} (min ${cur.noteMin ?? '–'}) · question ${cur.questionMean ?? '–'}${d('questionMean')} · chat ${cur.chatMean ?? '–'}${d('chatMean')}</p>
     <p class="hint">By rubric dimension (0–2): ${Object.entries(cur.dims).map(([k, v]) => `${k} ${esc(RUBRIC.note[k][0])} <b>${v ?? '–'}</b>${d(k, 'dims')}`).join(' · ')}</p>
-    <p class="hint">Graded by: ${Object.entries(cur.judgedBy || {}).map(([k, v]) => esc(k.replace('gemini-', '')) + ' ×' + v).join(' · ') || '–'} · cases with grader retries/fallbacks: ${cur.graderFallbacks ?? '–'}</p>
+    <p class="hint">Graded by: ${Object.entries(cur.judgedBy || {}).map(([k, v]) => esc(k.replace('gemini-', '')) + ' ×' + v).join(' · ') || '–'} · cases with grader retries/fallbacks: ${cur.graderFallbacks ?? '–'}${cur.backupGraded ? ` · <b>${cur.backupGraded} by backup grader</b> (less strict — read those notes yourself)` : ''}</p>
     <p class="hint">By category: ${Object.entries(cur.cats).map(([k, v]) => `${k} ${v}${d(k, 'cats')}`).join(' · ')}</p>
     ${prev && s && !live ? `<p class="hint">Compared with previous run (${esc(prev.version)}, prompt ${esc(prev.fingerprint)}, ${new Date(prev.date).toLocaleString('en-IN')}).</p>` : ''}
   </div>`;
 }
 function renderCaseResult(r) {
-  if (r.notJudged) return `<div class="card" style="padding:12px 14px;margin-bottom:8px;border-left:4px solid var(--ink3);"><b>${esc(r.id)} — ${esc(r.label)}</b><div class="hint">Not graded: the grader models' free limit was reached. Output kept for reading; excluded from scores.</div><details><summary>outputs</summary><pre style="white-space:pre-wrap;font-size:12px;">${esc(r.reply || JSON.stringify(r.note, null, 2) || '')}</pre></details></div>`;
+  if (r.notJudged) return `<div class="card" style="padding:12px 14px;margin-bottom:8px;border-left:4px solid var(--ink3);"><b>${esc(r.id)} — ${esc(r.label)}</b><div class="hint">Not graded — no grader model was available. Output kept for reading; excluded from scores.</div>${r.judgeTrail ? `<div class="hint">grader attempts: ${esc(r.judgeTrail.map(a => a.model.replace('gemini-', '') + ' ' + a.outcome).join(' → '))}</div>` : ''}<details><summary>outputs</summary><pre style="white-space:pre-wrap;font-size:12px;">${esc(r.reply || JSON.stringify(r.note, null, 2) || '')}</pre></details></div>`;
   const col = !r.gatesPass ? 'var(--red)' : (r.noteScore ?? r.chatScore) >= 80 ? '#2E7D4F' : 'var(--amber)';
   const j = r.judge || {};
   const gates = j.gates ? Object.entries(j.gates).filter(([, g]) => !g.pass).map(([k, g]) => `<div style="color:var(--red)">✗ gate ${k}: ${esc(g.why)}</div>`).join('') : '';
@@ -409,7 +421,7 @@ function renderCaseResult(r) {
   const whys = (grp) => grp ? Object.entries(grp).filter(([, v]) => v.s < 2).map(([k, v]) => `<div>• ${k} (${v.s}): ${esc(v.why)}</div>`).join('') : '';
   return `<div class="card" style="padding:12px 14px;margin-bottom:8px;border-left:4px solid ${col};">
     <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;"><b>${esc(r.id)} — ${esc(r.label)}</b>
-      <span>${r.cat === 'F' ? `chat <b>${r.chatScore}</b>` : `note <b>${r.noteScore}</b> · question <b>${r.qScore}</b>`} <span class="hint">${esc(r.genModel || '')} → judge ${esc(r.judgeModel || '')}</span></span></div>
+      <span>${r.cat === 'F' ? `chat <b>${r.chatScore}</b>` : `note <b>${r.noteScore}</b> · question <b>${r.qScore}</b>`} <span class="hint">${esc(r.genModel || '')} → judge ${esc(r.judgeModel || '')}${r.judgeModel === MODELS.liteOld.id ? ' (backup grader)' : ''}</span></span></div>
     ${r.error ? `<div style="color:var(--red)">error: ${esc(r.error)}</div>` : ''}
     ${r.judgeTrail && r.judgeTrail.length > 1 ? `<div class="hint">grader attempts: ${esc(r.judgeTrail.map(a => a.model.replace('gemini-', '') + ' ' + a.outcome).join(' → '))}</div>` : ''}
     ${(r.auto || []).map(a => `<div style="color:var(--amber)">⚙ ${esc(a)}</div>`).join('')}
@@ -427,7 +439,8 @@ async function runEval() {
   const cats = [...document.querySelectorAll('.lab-cat:checked')].map(x => x.value);
   const genChain = CHAIN_NOTE;   // always what teachers get
   const jsel = $('lab-judge').value;
-  const judgeChain = jsel === 'flash' ? [MODELS.flash, { id:'gemini-3.7-flash', thinking:'low' }, { id:'gemini-3.6-flash', thinking:'low' }] : jsel === 'old' ? [MODELS.liteOld, MODELS.lite] : [{ id: MODELS.lite.id, thinking:'low' }, MODELS.lite];
+  // every free Flash model has its own 20/day limit → six strict graders (≈120/day); unknown ids return 404 and are skipped at no cost
+  const judgeChain = jsel === 'flash' ? [MODELS.flash, ...GRADER_EXTRA, { id: MODELS.liteOld.id, rpm:12, backup:true }] : jsel === 'old' ? [MODELS.liteOld, MODELS.lite] : [{ id: MODELS.lite.id, thinking:'low' }, MODELS.lite];
   const gap = 1000;   // per-model pacing is handled inside geminiCall
   evalRunning = true; $('lab-run').disabled = true; evalResults = []; $('lab-out').innerHTML = '';
   for (const c of ALL_EVAL.filter(c => cats.includes(c.cat))) {
@@ -440,7 +453,7 @@ async function runEval() {
   runs.unshift({ ...s, date: new Date().toISOString(), version: APP_VERSION, fingerprint: promptFingerprint(), cats, generator: $('lab-gen').value, judge: jsel });
   renderEvalSummary(false);
   lsSetJSON('ss_eval_runs', runs.slice(0, 10));
-  evalRunning = false; $('lab-run').disabled = false;
+  evalRunning = false; $('lab-run').disabled = false; renderBlocks();
 }
 function exportEval(kind) {
   if (!evalResults.length) return;
