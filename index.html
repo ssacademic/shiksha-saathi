@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <meta name="theme-color" content="#F8F3EC"/>
 <title>Shiksha Saathi</title>
-<!-- v4.9 — v4.8 simplified: half-length prompt with one decision per note, strict multi-grade detection, one model (Flash-Lite), eval code split into eval.js. See CHANGELOG. -->
+<!-- v4.11 — v4.10 + reliable model calls: retry busy/limited models, pace each model, remember daily limits, log every attempt. See CHANGELOG. -->
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <!-- fonts load without blocking first paint (a slow font server used to mean a blank screen) -->
 <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Lora:wght@400;500;600&family=DM+Sans:wght@300;400;500&display=swap" onload="this.onload=null;this.rel='stylesheet'"/>
@@ -724,7 +724,7 @@ html[lang=hi] body{line-height:1.7;}
 // ═══════════════════════════════════
 //  CONSTANTS
 // ═══════════════════════════════════
-const APP_VERSION = 'v4.9';
+const APP_VERSION = 'v4.11';
 const ALL_GRADES = ['Balvatika','Class 1','Class 2','Class 3','Class 4','Class 5','Class 6','Class 7','Class 8','Class 9','Class 10','Class 11','Class 12','Multi-grade'];
 const TIPTALK_UNLOCK_COUNT = 3;
 const MAX_TURNS = 3;
@@ -738,13 +738,12 @@ const MAX_TURNS = 3;
 //                (free tier ≈ 15 RPM / ~500 per day each).
 // thinking: 3.8 Flash does NOT accept 'minimal'; Flash-Lite defaults to minimal, so we leave it unset there.
 const MODELS = {
-  flash:   { id:'gemini-3.8-flash',      thinking:'low' },
-  lite:    { id:'gemini-3.5-flash-lite' },
-  liteOld: { id:'gemini-3.1-flash-lite' },
+  flash:   { id:'gemini-3.8-flash', thinking:'low', rpm:5 },
+  lite:    { id:'gemini-3.5-flash-lite', rpm:15 },
+  liteOld: { id:'gemini-3.1-flash-lite', rpm:15 },
 };
 const CHAIN_NOTE  = [MODELS.lite, MODELS.liteOld];   // v4.9: one model for all of Meera's work (500/day, fast); Flash family is used only as the eval judge
 const CHAIN_LIGHT = [MODELS.lite, MODELS.liteOld];
-const FLASH_TIMEOUT_MS = 30000; // if the big model is slow on a weak connection, drop to Flash-Lite
 
 const DIM_NAMES = {
   prior_review: 'Start by connecting to prior knowledge',
@@ -1613,48 +1612,84 @@ function friendlyError(e) {
 // ═══════════════════════════════════
 //  GEMINI
 // ═══════════════════════════════════
-async function geminiCall(apiKey, body, chain = CHAIN_LIGHT) {
+// ─── Calling Gemini reliably ───────────────────────────────────────────────
+// • paces each model to its free per-minute limit (a queue per model)
+// • on "busy" (5xx) or a short "slow down" (429 with a retry delay): waits, then retries the SAME model once
+// • a model whose DAILY limit is used up is skipped until Google's daily reset (midnight Pacific time)
+// • every attempt is recorded (model, outcome, time), so a fallback can always be explained
+const lastCallAt = {};
+function ptDate() { return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' }); }
+function dailyBlocked(id) { return lsGet('ss_block_' + id) === ptDate(); }
+function blockForToday(id) { lsSet('ss_block_' + id, ptDate()); }
+async function paceModel(m) {
+  const minGap = 60000 / (m.rpm || 15) + 250;
+  const wait = (lastCallAt[m.id] || 0) + minGap - Date.now();
+  if (wait > 0) await delay(wait);
+  lastCallAt[m.id] = Date.now();
+}
+// opts: { timeout: ms per attempt, maxWait: longest retry delay worth waiting for }
+async function geminiCall(apiKey, body, chain = CHAIN_LIGHT, opts = {}) {
+  const timeout = opts.timeout || 45000, maxWait = opts.maxWait || 8000;
+  const attempts = [];
   let sawRateLimit = false, lastStatus = 0, blocked = false;
+  const fail = (code) => { const e = new Error(code); e.attempts = attempts; return e; };
   for (const m of chain) {
-    const gc = { ...(body.generationConfig || {}) };
-    if (m.thinking) gc.thinkingConfig = { thinkingLevel: m.thinking };
-    const ctrl = new AbortController();
-    const timer = m === MODELS.flash ? setTimeout(() => ctrl.abort(), FLASH_TIMEOUT_MS) : null;
-    let res;
-    try {
-      res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${m.id}:generateContent`, {
-        method:'POST', signal: ctrl.signal,
-        headers:{ 'Content-Type':'application/json', 'x-goog-api-key': apiKey },
-        body: JSON.stringify({ ...body, generationConfig: gc }),
-      });
-    } catch(e) {
+    if (dailyBlocked(m.id)) { attempts.push({ model: m.id, outcome: 'skipped: daily limit used' }); sawRateLimit = true; continue; }
+    for (let tryNo = 1; tryNo <= 2; tryNo++) {
+      await paceModel(m);
+      const gc = { ...(body.generationConfig || {}) };
+      if (m.thinking) gc.thinkingConfig = { thinkingLevel: m.thinking };
+      const ctrl = new AbortController(), t0 = Date.now();
+      const timer = setTimeout(() => ctrl.abort(), timeout);
+      let res;
+      try {
+        res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${m.id}:generateContent`, {
+          method:'POST', signal: ctrl.signal,
+          headers:{ 'Content-Type':'application/json', 'x-goog-api-key': apiKey },
+          body: JSON.stringify({ ...body, generationConfig: gc }),
+        });
+      } catch(e) {
+        clearTimeout(timer);
+        const ms = Date.now() - t0;
+        if (e.name === 'AbortError') { attempts.push({ model: m.id, outcome: 'timeout', ms }); break; }   // too slow → next model
+        attempts.push({ model: m.id, outcome: 'network', ms }); throw fail('NETWORK');
+      }
       clearTimeout(timer);
-      if (e.name === 'AbortError') { console.warn(`${m.id} timed out, trying next model`); continue; }
-      throw new Error('NETWORK');
-    }
-    clearTimeout(timer);
-    if (res.ok) {
-      const data = await res.json();
-      const cand = data.candidates && data.candidates[0];
-      const parts = cand && cand.content && cand.content.parts ? cand.content.parts : [];
-      const text = parts.filter(p => !p.thought).map(p => p.text || '').join('');
-      if (!text) { blocked = true; console.warn(`${m.id} returned no text (${cand && cand.finishReason})`); continue; }
-      return { text, finish: cand.finishReason, model: m.id };
-    }
-    lastStatus = res.status;
-    if (res.status === 429) sawRateLimit = true;
-    if (res.status === 400 || res.status === 401 || res.status === 403) {
+      const ms = Date.now() - t0;
+      if (res.ok) {
+        const data = await res.json();
+        const cand = data.candidates && data.candidates[0];
+        const parts = cand && cand.content && cand.content.parts ? cand.content.parts : [];
+        const text = parts.filter(p => !p.thought).map(p => p.text || '').join('');
+        if (!text) { blocked = true; attempts.push({ model: m.id, outcome: 'empty (' + (cand && cand.finishReason) + ')', ms }); break; }
+        attempts.push({ model: m.id, outcome: 'ok', ms });
+        return { text, finish: cand.finishReason, model: m.id, attempts };
+      }
+      lastStatus = res.status;
       const errText = await res.text().catch(() => '');
-      // A bad key is a hard stop; anything else (unsupported field, model not on this tier) → try next model
-      if (res.status === 401 || /API_KEY_INVALID|API key not valid|api key/i.test(errText)) throw new Error('AUTH');
-      console.warn(`${m.id} → ${res.status}`, errText.slice(0, 300));
-      continue;
+      if (res.status === 400 || res.status === 401 || res.status === 403) {
+        if (res.status === 401 || /API_KEY_INVALID|API key not valid|api key/i.test(errText)) { attempts.push({ model: m.id, outcome: 'bad key', ms }); throw fail('AUTH'); }
+        attempts.push({ model: m.id, outcome: String(res.status), ms }); break;   // model not on this tier / unsupported field → next
+      }
+      if (res.status === 404) { attempts.push({ model: m.id, outcome: '404 (model not available)', ms }); break; }
+      if (res.status === 429) {
+        sawRateLimit = true;
+        if (/PerDay/i.test(errText)) { blockForToday(m.id); attempts.push({ model: m.id, outcome: '429 daily limit used', ms }); break; }
+        const d = errText.match(/"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"/);
+        const waitMs = d ? Math.ceil(parseFloat(d[1]) * 1000) + 500 : 6000;
+        attempts.push({ model: m.id, outcome: `429 per-minute (retry in ${Math.round(waitMs / 1000)}s)`, ms });
+        if (tryNo === 1 && waitMs <= maxWait) { await delay(waitMs); continue; }   // short wait → same model again
+        break;
+      }
+      // 5xx: Google busy → brief pause, same model once more
+      attempts.push({ model: m.id, outcome: String(res.status) + ' busy', ms });
+      if (tryNo === 1) { await delay(Math.min(maxWait, 4000)); continue; }
+      break;
     }
-    console.warn(`${m.id} → ${res.status}, trying next model`);
   }
-  if (sawRateLimit) throw new Error('RATE_LIMIT');
-  if (blocked) throw new Error('BLOCKED');
-  throw new Error('HTTP_' + lastStatus);
+  if (sawRateLimit) throw fail('RATE_LIMIT');
+  if (blocked) throw fail('BLOCKED');
+  throw fail('HTTP_' + lastStatus);
 }
 async function geminiText(apiKey, prompt, cfg, chain) {
   const r = await geminiCall(apiKey, { contents:[{ role:'user', parts:[{ text:prompt }] }], generationConfig:cfg }, chain);
@@ -1726,9 +1761,12 @@ function scriptOfSetting(l) {
 function expectedScript(sourceText) { const l = coachLang(); return l !== 'auto' ? scriptOfSetting(l) : detectScript(sourceText); }
 function scriptLabel(sc) { return sc === 'latin' ? 'English letters (Latin script)' : ((SCRIPTS.find(x => x[0] === sc) || [])[3] || 'the same') + ' script'; }
 // text-specific extras, only for the script actually in use
+// Hindi written in English letters? (common words that English never uses)
+const HINGLISH_RX = /\b(hai|hain|tha|thi|nahi|nhi|kya|kiya|aaj|mein|ko|ke|ki|ka|bachche|bacche|bahut|kar|karwaya|padhaya|toh|aur|bhi|wale|diya|liya|raha|rahe|rahi|gaya|hoon|maine|humne|sab|kuch|ek)\b/gi;
+function isHinglish(text) { const t = String(text || ''); const words = t.split(/\s+/).filter(Boolean).length; const hits = (t.match(HINGLISH_RX) || []).length; return hits >= 3 && hits / Math.max(words, 1) >= 0.08; }
 function scriptExtras(sc) {
   const neutral = " You do not know the teacher's gender: address them in gender-neutral forms.";
-  if (sc === 'deva') return neutral + " In Hindi/Marathi use polite neutral forms ('आपने देखा', 'कीजिए'), never feminine or masculine forms for the teacher ('रुकीं', 'खड़ी हो जाएँ'). Write any English word in Devanagari (गूगल, होमवर्क). Transliterate names carefully (Priya → प्रिया).";
+  if (sc === 'deva') return neutral + " In Hindi/Marathi use polite neutral forms ('आपने देखा', 'कीजिए'), never feminine forms for the teacher ('रुकीं', 'करेंगी') — use the respectful plural ('आप करेंगे', 'कर सकते हैं'). In the \"script\" field, avoid gendered first-person verbs: use 'चलो', 'हम' or instructions ('सब पाँच तक सोचो'). Write any English word in Devanagari (गूगल, होमवर्क). Transliterate names carefully (Priya → प्रिया).";
   if (sc === 'arab') return neutral + ' In Urdu use polite neutral forms.';
   return neutral;
 }
@@ -1737,13 +1775,15 @@ function langRule(scope, sourceText) {
   if (l !== 'auto') { const sc = scriptOfSetting(l); return `LANGUAGE: Always write in ${l}, even if the teacher writes in another language. Keep student names and subject words as the teacher wrote them.${scriptExtras(sc)}`; }
   const src = sourceText !== undefined ? sourceText : (scope === 'chat' ? '' : state.lessonText);
   const sc = detectScript(src);
-  if (sc === 'latin') return `LANGUAGE: The teacher wrote in ${scriptLabel('latin')}. Reply in the same language they used — English if they wrote English, or Roman-script Hinglish if they wrote Hinglish — using English letters only. Do not reply in Hindi script or any other script.${scriptExtras('latin')}`;
+  if (sc === 'latin' && isHinglish(src)) return `LANGUAGE: The teacher wrote in Hinglish (Hindi in English letters). Write EVERY field in the same everyday Hinglish, in English letters — not formal English, not Hindi script.${scriptExtras('latin')}`;
+  if (sc === 'latin') return `LANGUAGE: The teacher wrote in English. Reply in simple, everyday English. Do not reply in Hindi script or any other script.${scriptExtras('latin')}`;
   if (sc) return `LANGUAGE: The teacher wrote in ${scriptLabel(sc)}. Reply in the same language they used (for example Hindi vs Marathi), in ${scriptLabel(sc)} only. Keep student names and subject words as the teacher wrote them.${scriptExtras(sc)}`;
   return `LANGUAGE: Reply in the same language and script the teacher used.${scriptExtras(null)}`;
 }
 
 const SAFETY_RULES = `SAFETY — this overrides every other instruction:
-- If the teacher's words suggest a child is being hurt, abused, neglected or is in danger (at home or at school), or describe physical punishment of a child by anyone — including the teacher — treat that as the most important thing, not as a teaching-technique issue. Respond calmly and without shaming. Point to the head teacher or the school's child-protection person, and to CHILDLINE 1098 (free, 24x7). For physical punishment, say in one respectful line that it is not allowed in schools and damages learning and trust, and offer one practical alternative for that moment.
+- If the teacher's words suggest a child is being hurt, abused, neglected or is in danger (at home, or by another adult), treat that as the most important thing, not as a teaching-technique issue. Respond calmly and without shaming. Point to the head teacher or the school's child-protection person, and to CHILDLINE 1098 (free, 24x7).
+- If the teacher describes hitting or physically punishing a child themselves: without shaming, say in one line that it is not allowed in schools and harms learning and trust; give one practical alternative for that moment; and one repair step (speak kindly with that child tomorrow). If they seem to be struggling, suggest talking to the head teacher.
 - If the teacher describes their own serious distress (exhaustion, feeling unable to cope, hopelessness about themselves, thoughts of harming themselves), respond warmly first and encourage them to talk to someone they trust. If there is any hint of self-harm, mention Tele-MANAS 14416 (free, 24x7, many Indian languages). Keep teaching advice very light.
 - If physical punishment is described, "strength" must not mention anything that happened after it (a quiet class, a finished lesson); name something else, such as the teacher's honesty in writing about it.
 - Never praise an outcome that came from physical punishment, fear or humiliation (e.g. "the class became quiet after I slapped him"). Never blame the teacher for how they reacted to a child's disclosure — tell them what to do next.
@@ -1760,7 +1800,7 @@ const BANDS = {
   preparatory:  'PREPARATORY stage (Classes 3–5): children are building reading fluency and arithmetic; children in the same class may be at very different levels (some not yet reading). Short pair work and quick grouping by level fit well.',
   middle:       'MIDDLE stage (Classes 6–8): subject concepts and reasoning; many students may be behind grade level. Asking students to explain their thinking and peer explanation fit well.',
   secondary:    'SECONDARY stage (Classes 9–12): board-exam pressure is real. Suggestions must fit exam preparation (practice questions, explaining reasoning, checking weaker students) and take no extra class time. The teacher may be very experienced — do not over-explain basics.',
-  multigrade:   'MULTI-GRADE room: several classes are taught together by one teacher. Every suggestion must keep the waiting groups usefully busy (a clear self-task on the board, a child helper per group) and take only a few minutes per group.',
+  multigrade:   'MULTI-GRADE room: several classes are taught together by one teacher. "try" MUST also say what the other groups do meanwhile (a clear self-task on the board, a child helper per group) — even when this week\'s move is about one group.',
 };
 const NUM = '(\\d{1,2}|एक|दो|तीन|चार|पाँच|one|two|three|four|five|ek|do|teen)';
 const MULTIGRADE_RX = new RegExp(`multi-?grade|बहु-?कक्षा|(classes|class|कक्षा|kaksha)\\s*${NUM}\\s*(,|and|aur|और|&)?\\s*${NUM}[^.।\\n]{0,30}(together|साथ|saath|in one room)`, 'i');
@@ -1804,7 +1844,7 @@ Meera asked: "${state.reflectionQuestion || '(none)'}" — the teacher answered:
 ${loopContext()}
 Write the note as JSON. The fields are one plan: "try" is the single action; "script" is its exact words; "tip" is it in 15 words; "followups" are about doing it.
 - safety_note: "" unless the safety rules apply (then 2–4 calm sentences).
-- strength (max 40 words): one specific thing the teacher did and why it helped students. Only if the description shows no teacher action at all, write: "You showed up, taught your class, and took time to reflect on it — that habit of pausing to notice what happened is where every good teacher begins." (in the teacher's language).
+- strength (max 40 words): one specific thing the teacher actually did and why it helped students. Even on a hard day there is something real (kept going, noticed a problem, settled or separated children, wrote honestly about it) — name that. Never praise something the teacher did not describe; if the description is almost empty, say briefly that noting even a little after class is a good habit.
 - pattern (max 45 words): one observation and what it means for students' learning — not advice.
 - try (max 50 words): tomorrow's action — when, what to say, what to do.
 - tip (max 15 words): starts with a verb.
@@ -2977,6 +3017,24 @@ window.addEventListener('hashchange', checkLabHash);
 window.addEventListener('DOMContentLoaded', checkLabHash);
 </script>
 <!--
+CHANGELOG v4.11 (from v4.10) — reliable model calls (seen: grader falling back 3.8 → 3.6 → Lite at random)
+- Removed the 30 s timeout that was meant for the app but also cut off the slower Flash grader mid-answer.
+- Busy (5xx) or short "slow down" (429 with retry delay) → wait and retry the SAME model once before falling back.
+- Each model is paced to its free per-minute limit (a queue per model), so the app never trips its own limits.
+- A model whose DAILY limit is used up is skipped until Google's reset (midnight Pacific) — no wasted calls.
+- Every attempt is recorded (model, outcome, time); the eval shows the trail per case and a fallback count.
+
+CHANGELOG v4.10 (from v4.9) — from reading the third eval as a teacher would
+- No generic praise: the fixed "You showed up…" line is gone (it was used even when teachers had clearly acted);
+  strength must name the smallest real thing, and never praise what wasn't described.
+- Hinglish detected in code → Meera replies in Hinglish (was English, or a mix).
+- Multi-grade: "try" must say what the other groups do meanwhile.
+- Hindi: respectful plural for the teacher; no gendered first-person verbs in the script.
+- Safety, teacher-first: abuse/danger → head teacher + CHILDLINE 1098; the teacher's own physical punishment →
+  not allowed + an alternative + a repair step with the child (1098 is for harm by others).
+- Eval (the measuring stick, not the product): grader never falls back to the model being graded — cases it can't
+  grade are marked "not graded"; chat rubric accepts a helpful redirect; case expectations updated to match the above.
+
 CHANGELOG v4.9 (from v4.8) — simplified after an architecture review
 - BUG: the multi-grade detector matched "the class answered together" (choral answers), so ordinary lessons were
   coached as multi-grade. Now needs class numbers + "together/साथ", or the teacher choosing "Multi-grade".
