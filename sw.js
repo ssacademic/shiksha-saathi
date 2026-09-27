@@ -1,7 +1,7 @@
 // Shiksha Saathi service worker — makes the app open offline and fast on slow networks.
 // Strategy: app files come from the phone's cache first and are refreshed in the background
 // (stale-while-revalidate), so a new version arrives on the next open. AI calls are never cached.
-const CACHE = 'shiksha-saathi-v4.4';
+const CACHE = 'shiksha-saathi-v4.7';
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
