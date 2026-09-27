@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <meta name="theme-color" content="#F8F3EC"/>
 <title>Shiksha Saathi</title>
-<!-- v4.11 — v4.10 + reliable model calls: retry busy/limited models, pace each model, remember daily limits, log every attempt. See CHANGELOG. -->
+<!-- v4.13 — v4.12 + six Flash graders (≈120 strict gradings/day) and per-minute headroom, from the Google usage table. See CHANGELOG. -->
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <!-- fonts load without blocking first paint (a slow font server used to mean a blank screen) -->
 <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Lora:wght@400;500;600&family=DM+Sans:wght@300;400;500&display=swap" onload="this.onload=null;this.rel='stylesheet'"/>
@@ -724,7 +724,7 @@ html[lang=hi] body{line-height:1.7;}
 // ═══════════════════════════════════
 //  CONSTANTS
 // ═══════════════════════════════════
-const APP_VERSION = 'v4.11';
+const APP_VERSION = 'v4.13';
 const ALL_GRADES = ['Balvatika','Class 1','Class 2','Class 3','Class 4','Class 5','Class 6','Class 7','Class 8','Class 9','Class 10','Class 11','Class 12','Multi-grade'];
 const TIPTALK_UNLOCK_COUNT = 3;
 const MAX_TURNS = 3;
@@ -739,8 +739,8 @@ const MAX_TURNS = 3;
 // thinking: 3.8 Flash does NOT accept 'minimal'; Flash-Lite defaults to minimal, so we leave it unset there.
 const MODELS = {
   flash:   { id:'gemini-3.8-flash', thinking:'low', rpm:5 },
-  lite:    { id:'gemini-3.5-flash-lite', rpm:15 },
-  liteOld: { id:'gemini-3.1-flash-lite', rpm:15 },
+  lite:    { id:'gemini-3.5-flash-lite', rpm:12 },   // free limit 15/min; 12 leaves room for other use of the same key
+  liteOld: { id:'gemini-3.1-flash-lite', rpm:12 },
 };
 const CHAIN_NOTE  = [MODELS.lite, MODELS.liteOld];   // v4.9: one model for all of Meera's work (500/day, fast); Flash family is used only as the eval judge
 const CHAIN_LIGHT = [MODELS.lite, MODELS.liteOld];
@@ -1633,8 +1633,9 @@ async function geminiCall(apiKey, body, chain = CHAIN_LIGHT, opts = {}) {
   const attempts = [];
   let sawRateLimit = false, lastStatus = 0, blocked = false;
   const fail = (code) => { const e = new Error(code); e.attempts = attempts; return e; };
+  const allBlocked = chain.every(m => dailyBlocked(m.id));
   for (const m of chain) {
-    if (dailyBlocked(m.id)) { attempts.push({ model: m.id, outcome: 'skipped: daily limit used' }); sawRateLimit = true; continue; }
+    if (dailyBlocked(m.id) && !allBlocked) { attempts.push({ model: m.id, outcome: 'skipped: daily limit used' }); sawRateLimit = true; continue; }
     for (let tryNo = 1; tryNo <= 2; tryNo++) {
       await paceModel(m);
       const gc = { ...(body.generationConfig || {}) };
@@ -1674,7 +1675,8 @@ async function geminiCall(apiKey, body, chain = CHAIN_LIGHT, opts = {}) {
       if (res.status === 404) { attempts.push({ model: m.id, outcome: '404 (model not available)', ms }); break; }
       if (res.status === 429) {
         sawRateLimit = true;
-        if (/PerDay/i.test(errText)) { blockForToday(m.id); attempts.push({ model: m.id, outcome: '429 daily limit used', ms }); break; }
+        const quotaIds = (errText.match(/"quotaId"\s*:\s*"([^"]+)"/g) || []).join(' ');
+        if (/PerDay/i.test(quotaIds) && !/PerMinute/i.test(quotaIds)) { blockForToday(m.id); attempts.push({ model: m.id, outcome: '429 daily limit used', ms }); break; }
         const d = errText.match(/"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"/);
         const waitMs = d ? Math.ceil(parseFloat(d[1]) * 1000) + 500 : 6000;
         attempts.push({ model: m.id, outcome: `429 per-minute (retry in ${Math.round(waitMs / 1000)}s)`, ms });
@@ -3017,6 +3019,19 @@ window.addEventListener('hashchange', checkLabHash);
 window.addEventListener('DOMContentLoaded', checkLabHash);
 </script>
 <!--
+CHANGELOG v4.13 (from v4.12) — from Google's usage table (27 Sep)
+- Grader chain now uses every free Flash model, each with its own 20/day limit: 3.8 → 3.7 → 3.6 → 3.5 → 3 → 2.5 Flash
+  (≈120 strict gradings a day; a full eval needs ~33), then the 3.1 Flash-Lite backup.
+- Flash-Lite paced at 12/min (free limit 15; an eval peaked at 14), leaving room for other use of the same key.
+
+CHANGELOG v4.12 (from v4.11)
+- Daily-limit detection reads Google's quotaId (PerDay and not PerMinute) instead of any text mentioning "PerDay".
+- Safety valve: if every model in a chain is marked "daily limit used", they are tried anyway — a wrong mark can
+  never lock a teacher out of Meera.
+- Eval: backup grader 3.1 Flash-Lite (a different model from the note writer, 3.5 Flash-Lite) after the Flash family;
+  cases it grades are labelled "backup grader". "Not graded" cards show the attempt trail; the lab header shows which
+  models are marked used-up today, with a button to clear the marks.
+
 CHANGELOG v4.11 (from v4.10) — reliable model calls (seen: grader falling back 3.8 → 3.6 → Lite at random)
 - Removed the 30 s timeout that was meant for the app but also cut off the slower Flash grader mid-answer.
 - Busy (5xx) or short "slow down" (429 with retry delay) → wait and retry the SAME model once before falling back.
