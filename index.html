@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <meta name="theme-color" content="#F8F3EC"/>
 <title>Shiksha Saathi</title>
-<!-- v4.13 — v4.12 + six Flash graders (≈120 strict gradings/day) and per-minute headroom, from the Google usage table. See CHANGELOG. -->
+<!-- v5.1 — v5.0 + fixes from a full ride as a teacher: your own subjects, clearer note screen, honest no-key paths. See CHANGELOG. -->
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <!-- fonts load without blocking first paint (a slow font server used to mean a blank screen) -->
 <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Lora:wght@400;500;600&family=DM+Sans:wght@300;400;500&display=swap" onload="this.onload=null;this.rel='stylesheet'"/>
@@ -199,6 +199,34 @@ textarea.ta{border-radius:10px;font-size:14px;line-height:1.6;resize:vertical;}
 .progress{height:6px;background:var(--border);border-radius:3px;overflow:hidden;width:100%;max-width:200px;}
 .progress-fill{height:100%;background:var(--accent);border-radius:3px;transition:width 0.4s;}
 .spacer-nav{height:76px;}
+/* v4.17 touch targets: every control at least 44 px high */
+button,.chip,.grade-chip,.btn-small,.btn-ghost,.acc-toggle,select,input[type=text],input[type=password],input[type=tel],input[type=number]{min-height:44px;box-sizing:border-box;}
+.link-btn{min-height:44px;display:inline-flex;align-items:center;padding:10px 2px;}
+.grade-chip{display:inline-flex;align-items:center;padding:10px 14px;}
+.chip{display:inline-flex;align-items:center;}
+.btn-small{display:inline-flex;align-items:center;justify-content:center;}
+summary{padding:13px 0;cursor:pointer;}
+.setting-row a, .setting-desc a{display:inline-block;padding:12px 0;}
+.place-cb{width:24px;height:24px;flex-shrink:0;}
+.place-row{min-height:44px;display:flex;align-items:center;gap:10px;cursor:pointer;}
+.stepbar .st{min-height:44px;}
+.today-link{display:inline-flex;align-items:center;gap:4px;min-height:44px;color:var(--accent);font-size:14px;background:none;border:none;padding:0;cursor:pointer;text-align:left;}
+.toast{display:flex;align-items:center;gap:12px;justify-content:space-between;}
+.toast-undo{color:#F2D57E;background:none;border:none;font-weight:600;font-size:14px;min-height:44px;padding:0 4px;cursor:pointer;}
+.fit-panel{display:flex;flex-direction:column;gap:10px;}
+#fit-text{min-height:64px;padding:10px 12px;font-size:15px;border:1px solid var(--border);border-radius:10px;background:var(--surface);color:var(--ink);font-family:inherit;}
+/* v4.15 flow */
+.stepbar{display:flex;align-items:center;gap:6px;margin:2px 0 4px;}
+.stepbar .st{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--ink3);background:none;border:none;padding:4px 0;cursor:default;}
+.stepbar .st .dot{width:22px;height:22px;border-radius:50%;border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;background:var(--surface);}
+.stepbar .st.done{color:var(--ink2);cursor:pointer;}
+.stepbar .st.done .dot{background:var(--accent-l);border-color:var(--accent);color:var(--accent);}
+.stepbar .st.cur{color:var(--accent);font-weight:600;}
+.stepbar .st.cur .dot{background:var(--accent);border-color:var(--accent);color:#fff;}
+.stepbar .ln{flex:1;height:1.5px;background:var(--border);min-width:14px;}
+.toast{position:fixed;left:50%;bottom:92px;transform:translateX(-50%);max-width:420px;width:calc(100% - 40px);background:#2C3A33;color:#F4F1EA;padding:12px 16px;border-radius:10px;font-size:14px;line-height:1.45;z-index:450;box-shadow:0 6px 24px rgba(0,0,0,0.25);}
+.pulse{animation:pulse 1.2s ease 2;}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(166,74,23,0);}50%{box-shadow:0 0 0 6px rgba(166,74,23,0.25);}}
 /* v4.3 — comfortable tap targets (≥40px) */
 .back-link{padding:10px 0;}
 .link-btn{padding:8px 0;}
@@ -270,7 +298,8 @@ html[lang=hi] body{line-height:1.7;}
     <p class="wordmark">Shiksha Saathi</p>
     <p class="tagline">Your daily teaching coach</p>
     <p id="screen1-heading" style="font-family:var(--serif);font-size:22px;font-weight:600;line-height:1.3;padding-right:44px;">Let's talk about today's lesson</p>
-    <p class="hint hidden" id="today-focus" style="margin-top:8px;cursor:pointer;" onclick="navTo('screen-history','nav-history')"></p>
+    <div class="stepbar" id="stepbar-1" style="margin-top:12px;"></div>
+    <button class="today-link hidden" id="today-focus" style="margin-top:4px;" onclick="navTo('screen-history','nav-history')"></button>
   </div>
 
   <div class="banner amber hidden" id="api-banner" onclick="showKeySection()">
@@ -284,7 +313,7 @@ html[lang=hi] body{line-height:1.7;}
   </div>
 
   <div class="card hidden" id="checkin-card">
-    <p class="section-label">Your last move</p>
+    <p class="section-label">Your last suggestion</p>
     <p class="checkin-move" id="checkin-move" dir="auto"></p>
     <p class="subtext" style="margin-bottom:10px;">Did you get to try it?</p>
     <div class="choice-row" id="checkin-choices">
@@ -303,16 +332,16 @@ html[lang=hi] body{line-height:1.7;}
     <div class="field-row">
       <div class="field">
         <label for="subject">Subject <span style="color:var(--red);">*</span></label>
-        <select id="subject" onchange="onFormInput()">
-          <option value="">— select —</option>
-          <option value="Maths">Maths</option><option value="Science">Science</option><option value="Hindi">Hindi</option>
-          <option value="English">English</option><option value="Regional language">Regional language</option><option value="Urdu">Urdu</option><option value="Sanskrit">Sanskrit</option><option value="Social Science">Social Science</option><option value="EVS">EVS</option><option value="PE / Sports">PE / Sports</option><option value="Other">Other</option>
-        </select>
+        <select id="subject" onchange="onSubjectChange()"><option value="">— select —</option></select>
       </div>
       <div class="field">
         <label for="grade">Class <span style="color:var(--red);">*</span></label>
         <select id="grade" onchange="onFormInput()"><option value="">— select —</option></select>
       </div>
+    </div>
+    <div class="field hidden" id="subject-other-field">
+      <label for="subject-other">Subject name <span style="color:var(--red);">*</span></label>
+      <input type="text" id="subject-other" dir="auto" placeholder="Type the subject…" oninput="onFormInput()"/>
     </div>
     <div class="field">
       <label for="topic">Topic <span class="hint" style="text-transform:none;letter-spacing:0;">(optional)</span></label>
@@ -331,6 +360,7 @@ html[lang=hi] body{line-height:1.7;}
     <span>Just exploring?</span>
     <button class="link-btn" style="color:var(--ink3);" onclick="toggleDemoMode()" id="demo-toggle-btn">Try a sample lesson</button>
   </div>
+  <button class="link-btn hidden" id="clear-draft" style="align-self:flex-start;color:var(--ink3);margin-top:-12px;" onclick="clearDraft(this)">Clear and start over</button>
   <div id="demo-panel" class="banner soft hidden">
     <div class="field" style="width:100%;">
       <label for="demo-select" style="color:var(--accent);">Pick a sample lesson</label>
@@ -352,12 +382,13 @@ html[lang=hi] body{line-height:1.7;}
 
 <!-- ══════ SCREEN 2 — Reflect ══════ -->
 <section class="screen" id="screen-reflect">
-  <button class="back-link" onclick="goTo('screen-record')">
+  <button class="back-link" onclick="goStep(1)">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M15 18l-6-6 6-6"/></svg> Back
   </button>
   <div>
     <p class="wordmark">Shiksha Saathi</p>
     <h1>One moment before feedback</h1>
+    <div class="stepbar" id="stepbar-2" style="margin-top:10px;"></div>
   </div>
 
   <div style="display:flex;flex-direction:column;gap:10px;">
@@ -381,12 +412,13 @@ html[lang=hi] body{line-height:1.7;}
 
 <!-- ══════ SCREEN 3 — Coaching note ══════ -->
 <section class="screen" id="screen-feedback">
-  <button class="back-link" onclick="goTo('screen-reflect')">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M15 18l-6-6 6-6"/></svg> Back to reflection
+  <button class="back-link" onclick="goStep(2)">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M15 18l-6-6 6-6"/></svg> Change my answers
   </button>
   <div>
     <p class="wordmark">Shiksha Saathi</p>
     <h1>Your coaching note</h1>
+    <div class="stepbar" id="stepbar-3" style="margin-top:10px;"></div>
   </div>
   <div class="tag-row" id="session-tags"></div>
 
@@ -443,21 +475,10 @@ html[lang=hi] body{line-height:1.7;}
     <button class="btn-small" style="align-self:flex-start;background:var(--accent);color:#fff;" onclick="retryWithAI()">Get AI coaching note</button>
   </div>
 
-  <div id="unsaved-warning" class="hidden" style="background:#FEF3CD;border:1.5px solid #C8791A;border-radius:10px;padding:14px 16px;">
-    <p style="font-size:13px;color:#7A4A0A;font-weight:500;margin-bottom:10px;">⚠️ This note isn't saved yet. Save it before leaving?</p>
-    <div style="display:flex;gap:8px;">
-      <button onclick="saveSession()" style="flex:1;padding:9px;background:#C8791A;color:#fff;border:none;border-radius:8px;font-size:13px;cursor:pointer;font-weight:500;">Save &amp; continue</button>
-      <button onclick="leaveWithoutSaving()" style="flex:1;padding:9px;background:none;color:#7A4A0A;border:1.5px solid #C8791A;border-radius:8px;font-size:13px;cursor:pointer;">Discard note</button>
-    </div>
-  </div>
-
-  <button class="btn-primary" id="save-btn" disabled onclick="saveSession()">Save — this is my move for tomorrow ✓</button>
-  <p class="hint hidden" id="saved-line" style="text-align:center;margin-top:-10px;">Saved. Next time you open the app, Meera will ask how it went.</p>
-  <button class="btn-ghost hidden" id="copy-note-btn" onclick="copyNote()">Copy note</button>
-
   <div id="followup-wrap" class="hidden" style="display:flex;flex-direction:column;gap:12px;">
     <button class="followup-toggle" id="followup-toggle" onclick="toggleFollowUp()">💬 <span>Ask Meera a follow-up</span></button>
     <div id="followup-body" class="hidden" style="display:flex;flex-direction:column;gap:12px;">
+      <div class="banner amber hidden" id="followup-nokey" style="flex-direction:column;align-items:flex-start;gap:8px;"><span>Follow-up questions need a free Google AI key.</span><button class="btn-small" onclick="showKeySection()">Add a free key</button></div>
       <div id="followup-suggestions" style="display:flex;flex-direction:column;gap:7px;"></div>
       <div class="chat-thread hidden" id="chat-thread"></div>
       <div class="chat-input-row" id="chat-input-row">
@@ -470,7 +491,24 @@ html[lang=hi] body{line-height:1.7;}
     </div>
   </div>
 
-  <button class="btn-ghost" onclick="requestNewSession()">Start a new session</button>
+  <div class="card hidden" id="fit-card" style="padding:14px 16px;">
+    <button class="link-btn" id="fit-open" style="color:var(--ink2);" onclick="openFit()">Doesn't fit your class? Tell Meera</button>
+    <div class="fit-panel hidden" id="fit-panel">
+      <p class="subtext" style="font-weight:500;">What didn't fit?</p>
+      <div class="chips" id="fit-reasons"></div>
+      <textarea id="fit-text" rows="2" placeholder="In your words (optional)…"></textarea>
+      <button class="btn-primary" id="fit-redo" onclick="submitFit(true)">Get a different suggestion</button>
+      <button class="btn-ghost" onclick="submitFit(false)">Just note it</button>
+    </div>
+  </div>
+  <div class="card hidden" id="done-card" style="display:flex;flex-direction:column;gap:12px;border-color:var(--accent);">
+    <p style="font-size:16px;font-weight:600;color:var(--accent);" id="done-title">✓ Saved in your journey.</p>
+    <p class="subtext" id="done-sub">Tomorrow, Meera will ask whether you tried it.</p>
+    <button class="btn-primary" onclick="newClass()">Write about another class</button>
+    <button class="btn-ghost" onclick="navTo('screen-history','nav-history')">See your journey</button>
+    <div style="display:flex;justify-content:center;gap:18px;"><button class="link-btn hidden" id="copy-note-btn" style="color:var(--ink2);" onclick="copyNote()">Copy note</button><button class="link-btn" style="color:var(--ink3);" onclick="deleteNote()">Delete this note</button></div>
+  </div>
+
   <div class="spacer-nav"></div>
 </section>
 
@@ -479,9 +517,9 @@ html[lang=hi] body{line-height:1.7;}
   <div><p class="wordmark">Shiksha Saathi</p><h1>Your journey</h1></div>
   <div class="card" id="focus-card"></div>
   <div class="stats-row">
-    <div class="stat-box"><div class="stat-num" id="stat-total">0</div><div class="stat-label">sessions total</div></div>
-    <div class="stat-box"><div class="stat-num" id="stat-month">0</div><div class="stat-label">this month</div></div>
-    <div class="stat-box"><div class="stat-num" id="stat-streak">0</div><div class="stat-label">day streak</div></div>
+    <div class="stat-box"><div class="stat-num" id="stat-total">0</div><div class="stat-label">notes in all</div></div>
+    <div class="stat-box"><div class="stat-num" id="stat-month">0</div><div class="stat-label">notes this month</div></div>
+    <div class="stat-box"><div class="stat-num" id="stat-streak">0</div><div class="stat-label">days in a row</div></div>
   </div>
   <div class="card" style="padding:16px 20px;">
     <p class="section-label" style="margin-bottom:10px;">Last 7 days</p>
@@ -489,14 +527,10 @@ html[lang=hi] body{line-height:1.7;}
     <div style="display:flex;gap:4px;margin-top:6px;" id="streak-labels"></div>
   </div>
   <div>
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
-      <p class="section-label">All your tips</p>
-      <button class="link-btn" style="text-decoration:none;" onclick="copyAllTips(this)">Copy all</button>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+      <p class="section-label">Your notes</p>
+      <button class="link-btn" style="text-decoration:none;" onclick="copyAllTips(this)">Copy all tips</button>
     </div>
-    <div class="card" id="quick-rev-list" style="padding:8px 16px;"></div>
-  </div>
-  <div>
-    <p class="section-label" style="margin-bottom:12px;">Session log</p>
     <div id="timeline-list"></div>
   </div>
   <div class="spacer-nav"></div>
@@ -510,10 +544,10 @@ html[lang=hi] body{line-height:1.7;}
   </div>
   <div class="tiptalk-lock" id="tiptalk-lock">
     <div style="font-size:36px;">💬</div>
-    <h2>Unlocks after 3 saved sessions</h2>
-    <p class="subtext">Meera needs a few lessons to spot real patterns.</p>
+    <h2>Opens after your first 3 notes</h2>
+    <p class="subtext">Meera needs a few lessons before she can talk about patterns in your teaching.</p>
     <div class="progress"><div class="progress-fill" id="tiptalk-progress-fill" style="width:0%"></div></div>
-    <p class="hint" id="tiptalk-progress-label">0 of 3 sessions</p>
+    <p class="hint" id="tiptalk-progress-label">0 of 3 notes</p>
   </div>
   <div id="tiptalk-unlocked" class="hidden" style="display:flex;flex-direction:column;gap:16px;">
     <div id="tiptalk-rating-nudge" class="banner soft hidden">
@@ -586,12 +620,14 @@ html[lang=hi] body{line-height:1.7;}
       <div class="onboard-step-title">Tell Meera how it went</div>
       <div class="onboard-step-desc">Next time, Meera asks if you tried it and builds on that — one move at a time, until it becomes a habit.</div></div></div>
   </div>
+  <p class="hint" style="max-width:380px;text-align:center;margin-bottom:10px;">Meera can misread a lesson or suggest something that doesn't fit. You know your class best: change or skip anything, and tell Meera when it doesn't fit.</p>
   <p class="hint" style="max-width:380px;text-align:center;margin-bottom:16px;">🔒 Your notes stay on this phone — nothing is shared with your school. When Meera writes a note, your description is sent to Google's AI; please use first names only for students.</p>
   <button class="btn-primary" style="max-width:380px;" onclick="dismissOnboarding()">Start</button>
   <p class="hint" style="margin-top:14px;text-align:center;">Grounded in Rosenshine's Principles of Instruction &amp; Teach Like a Champion</p>
 </div>
 
 </div><!-- /app -->
+<div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
 <div id="lock" class="hidden">
   <p class="wordmark" style="font-size:14px;">Shiksha Saathi</p>
   <p class="subtext">Enter your PIN</p>
@@ -624,14 +660,18 @@ html[lang=hi] body{line-height:1.7;}
 
     <button class="acc-toggle" data-acc="profile" onclick="toggleAcc('profile')"><span>My profile</span><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg></button>
     <div class="acc-body" id="acc-profile">
-      <div class="setting-row"><span class="setting-label">Name</span><div class="field"><input type="text" id="profile-name" placeholder="Your name…" autocomplete="name"/></div></div>
-      <div class="setting-row"><span class="setting-label">School</span><div class="field"><input type="text" id="profile-school" placeholder="School name…"/></div></div>
+      <div class="setting-row"><span class="setting-label">Name</span><div class="field"><input type="text" id="profile-name" placeholder="Your name…" autocomplete="name" oninput="saveProfileSoon()"/></div></div>
+      <div class="setting-row"><span class="setting-label">School</span><div class="field"><input type="text" id="profile-school" placeholder="School name…" oninput="saveProfileSoon()"/></div></div>
       <div class="setting-row">
         <span class="setting-label">Classes I teach</span>
         <div style="display:flex;flex-wrap:wrap;gap:6px;" id="grade-chips-profile"></div>
         <p class="hint">Only these will show in the class dropdown. Leave empty to show all.</p>
+        <span class="setting-label" style="margin-top:10px;">Subjects I teach</span>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;" id="subject-chips-profile"></div>
+        <div style="display:flex;gap:8px;"><input type="text" id="subject-add" dir="auto" placeholder="Add a subject…" style="flex:1;" onkeydown="if(event.key==='Enter'){addSubject();}"/><button class="btn-small" onclick="addSubject()">Add</button></div>
+        <p class="hint">Only these will show in the subject list. Leave empty to show all.</p>
       </div>
-      <div class="setting-row"><button class="btn-primary" id="save-profile-btn" onclick="saveProfile()">Save profile</button></div>
+      <div class="setting-row"><span class="key-status" id="profile-status"></span><span class="setting-desc">Changes are saved as you type.</span></div>
     </div>
 
     <button class="acc-toggle" data-acc="key" onclick="toggleAcc('key')"><span>Google AI key (free)</span><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg></button>
@@ -700,11 +740,12 @@ html[lang=hi] body{line-height:1.7;}
         <span class="key-status" id="pin-status"></span>
       </div>
       <div class="setting-row">
-        <span class="setting-label" style="font-size:13px;">Clear history</span>
+        <span class="setting-label" style="font-size:13px;">Delete saved notes</span>
         <span class="setting-desc">Deletes saved notes. Your path progress is kept.</span>
-        <button class="btn-ghost" onclick="clearAllData(this)">Clear all saved sessions</button>
+        <button class="btn-ghost" onclick="clearAllData(this)">Delete all saved notes</button>
       </div>
     </div>
+    <button class="btn-ghost" style="margin-top:12px;" onclick="reopenOnboarding()">How Shiksha Saathi works</button>
   </div>
 </div>
 
@@ -724,7 +765,7 @@ html[lang=hi] body{line-height:1.7;}
 // ═══════════════════════════════════
 //  CONSTANTS
 // ═══════════════════════════════════
-const APP_VERSION = 'v4.13';
+const APP_VERSION = 'v5.1';
 const ALL_GRADES = ['Balvatika','Class 1','Class 2','Class 3','Class 4','Class 5','Class 6','Class 7','Class 8','Class 9','Class 10','Class 11','Class 12','Multi-grade'];
 const TIPTALK_UNLOCK_COUNT = 3;
 const MAX_TURNS = 3;
@@ -777,7 +818,7 @@ function freshState() {
     subject:'', grade:'', topic:'', lessonText:'',
     classStates:[], reflectionQuestion:'', reflectAnswer:'', skipped:false,
     note:null, noteSource:null, noteShown:false, saved:false, focusDim:null,
-    chatHistory:[], chatTurns:0, pendingNav:null, questionFor:'',
+    chatHistory:[], chatTurns:0, questionFor:'', step:1, sessionId:null,
     demoKey:'',
     checkin:null, checkinDeferred:false, rehearsed:false, noteModel:'',
   };
@@ -1149,6 +1190,22 @@ const HI = {
 "After class, tell Meera \"Yes, I tried it\" — each yes moves you forward.": "क्लास के बाद मीरा को \"हाँ, किया\" बताइए — हर \"हाँ\" पर आप एक कदम आगे बढ़ेंगे।",
 "Your tries:": "अब तक:",
 "sample lesson": "नमूना पाठ",
+"Reflect": "सोचें",
+"Note": "नोट",
+"Change my answers": "जवाब बदलें",
+"✓ Saved in your journey.": "✓ आपके सफ़र में सेव हो गया।",
+"Tomorrow, Meera will ask whether you tried it.": "कल मीरा पूछेगी कि आपने करके देखा या नहीं।",
+"Write about another class": "दूसरी क्लास के बारे में लिखें",
+"See your journey": "अपना सफ़र देखें",
+"Delete this note": "यह नोट हटाएँ",
+"Tap again to delete": "हटाने के लिए फिर दबाइए",
+"Note deleted.": "नोट हटा दिया गया।",
+"This week’s practice is now: {m}": "इस हफ़्ते का तरीका अब: {m}",
+"Marked as a habit. Next up: {m}": "आदत में जोड़ दिया। अगला: {m}",
+"Marked as a habit.": "आदत में जोड़ दिया।",
+"Clear and start over": "सब मिटाकर नए सिरे से शुरू करें",
+"Tap again to clear": "मिटाने के लिए फिर दबाइए",
+"Couldn't save — your phone's storage may be full.": "सेव नहीं हो पाया — शायद फ़ोन की मेमोरी भर गई है।",
 "Shiksha Saathi": "शिक्षा साथी",
 "Yes — it's part of my teaching now": "हाँ — अब यह मेरे पढ़ाने का हिस्सा है",
 "Not yet, keep practising": "अभी नहीं, अभ्यास जारी रखूँ",
@@ -1159,7 +1216,59 @@ const HI = {
 "Text size": "अक्षरों का आकार",
 "A · Normal": "अ · सामान्य",
 "A+ · Large": "अ+ · बड़ा",
-"A++ · Extra large": "अ++ · बहुत बड़ा"
+"A++ · Extra large": "अ++ · बहुत बड़ा",
+"Changes are saved as you type.": "जो लिखेंगे, अपने-आप सेव हो जाएगा।",
+"Your notes": "आपके नोट",
+"Copy all tips": "सारे सुझाव कॉपी करें",
+"notes in all": "कुल नोट",
+"notes this month": "इस महीने के नोट",
+"days in a row": "लगातार दिन",
+"Your notes will appear here after your first lesson.": "पहली क्लास के बाद आपके नोट यहाँ दिखेंगे।",
+"Show all {n} notes": "सभी {n} नोट दिखाएँ",
+"Opens after your first 3 notes": "आपके पहले 3 नोट के बाद खुलेगा",
+"Meera needs a few lessons before she can talk about patterns in your teaching.": "आपके पढ़ाने के पैटर्न पर बात करने से पहले मीरा को कुछ क्लास की ज़रूरत है।",
+"{a} of {b} notes": "{b} में से {a} नोट",
+"This week’s move is now: {m}": "इस हफ़्ते का तरीका अब: {m}",
+"Undo": "वापस लें",
+"Undone.": "पहले जैसा कर दिया।",
+"Note restored.": "नोट वापस आ गया।",
+"{n} moves marked as habits. Next up: {m}": "{n} तरीके आदत में जोड़े। अगला: {m}",
+"Meera can misread a lesson or suggest something that doesn't fit. You know your class best: change or skip anything, and tell Meera when it doesn't fit.": "मीरा कभी क्लास को गलत समझ सकती है या ऐसा सुझाव दे सकती है जो आपकी क्लास में न चले। अपनी क्लास आप सबसे अच्छी तरह जानते हैं: जो ठीक न लगे उसे बदलिए या छोड़िए, और मीरा को बताइए।",
+"How Shiksha Saathi works": "शिक्षा साथी कैसे काम करता है",
+"Delete all saved notes": "सारे सेव किए नोट हटाएँ",
+"Doesn't fit your class? Tell Meera": "आपकी क्लास में नहीं चलेगा? मीरा को बताइए",
+"What didn't fit?": "क्या ठीक नहीं लगा?",
+"Not possible in my class": "मेरी क्लास में संभव नहीं",
+"Misread what happened": "जो हुआ उसे गलत समझा",
+"Too general": "बहुत आम सुझाव",
+"Wrong language": "गलत भाषा",
+"Something else": "कुछ और",
+"In your words (optional)…": "अपने शब्दों में (चाहें तो)…",
+"Get a different suggestion": "दूसरा सुझाव दीजिए",
+"Just note it": "बस नोट कर लीजिए",
+"Thank you. Meera will keep this in mind.": "धन्यवाद। मीरा इसे ध्यान में रखेगी।",
+"Hello,": "नमस्ते,",
+"Other (type it)": "अन्य (लिखें)",
+"Type the subject…": "विषय लिखिए…",
+"Subjects I teach": "मैं कौन-से विषय पढ़ाता/पढ़ाती हूँ",
+"Add a subject…": "विषय जोड़ें…",
+"Add": "जोड़ें",
+"Only these will show in the subject list. Leave empty to show all.": "विषय की सूची में सिर्फ़ यही दिखेंगे। सब दिखाने के लिए खाली छोड़ें।",
+"Added: {s}": "जोड़ा गया: {s}",
+"Follow-up questions need a free Google AI key.": "आगे सवाल पूछने के लिए मुफ़्त गूगल एआई-की चाहिए।",
+"Add a free key": "मुफ़्त की जोड़ें",
+"Your last suggestion": "पिछला सुझाव",
+"Tomorrow's suggestion is about \"{a}\". This week's move is still \"{b}\".": "कल का सुझाव \"{a}\" के बारे में है। इस हफ़्ते का तरीका अब भी \"{b}\" है।",
+"This builds on this week's move: {m}": "यह इस हफ़्ते के तरीके पर आगे बढ़ता है: {m}",
+"Delete saved notes": "सेव किए नोट हटाएँ",
+"The children at the back drifted away from the lesson. Children who sit far from the teacher are easy to lose, and they often stay quiet when they have not understood.": "पीछे बैठे बच्चों का ध्यान पाठ से हट गया। शिक्षक से दूर बैठे बच्चे आसानी से छूट जाते हैं, और समझ न आने पर अक्सर चुप रहते हैं।",
+"Tomorrow, during practice time, walk to the back row first and ask two children there to show you their work or tell you their answer.": "कल अभ्यास के समय सबसे पहले पीछे की लाइन तक जाइए और वहाँ के दो बच्चों से उनका काम दिखाने या जवाब बताने को कहिए।",
+"Start your walk from the back row and check two children there.": "घूमना पीछे की लाइन से शुरू करें और वहाँ दो बच्चों को देखें।",
+"You taught {s} to {g} today and took a few minutes afterwards to look back at how it went.": "आज आपने {g} को {s} पढ़ाया और बाद में कुछ मिनट रुककर सोचा कि कैसा रहा।",
+"your lesson": "आपका पाठ",
+"your class": "आपकी क्लास",
+"Subject name": "विषय का नाम",
+"Other…": "अन्य…"
 };
 function tr(s, vars) {
   let out = (UI_LANG === 'hi' && HI[s]) || s;
@@ -1227,8 +1336,9 @@ function setUiLang(l) {
     if (cur === 'screen-tiptalk') { if (!tiptalkHistory.length) renderTiptalk(); }
     if (cur === 'screen-learn') renderLearn();
     if (cur === 'screen-reflect') { renderClassStateChips(); if (!state.reflectionQuestion || !hasKey()) setQuestion(fallbackQuestion()); }
-    if (cur === 'screen-feedback' && state.noteShown && !state.saved && state.noteSource === 'template') renderNote(fallbackNote(), 'template', '');
-    else if (cur === 'screen-feedback' && state.noteShown && state.note) { const keepSaved = state.saved; renderNote(state.note, state.noteSource, ''); if (keepSaved) { state.saved = true; $('save-btn').disabled = true; $('save-btn').textContent = tr('Saved ✓'); show('saved-line'); } }
+    if (cur === 'screen-feedback' && state.noteShown && state.noteSource === 'template') { renderNote(fallbackNote(), 'template', ''); }
+    else if (cur === 'screen-feedback' && state.noteShown && state.note) renderNote(state.note, state.noteSource, '', true);
+    renderStepbars();
     if (cur === 'screen-feedback' && state.noteShown) { const tags = $('session-tags'); tags.querySelectorAll('.info-tag').forEach(t => trTree(t)); }
     if ($('settings-sheet').classList.contains('open')) loadSettingsSheet();
   } catch(e) { console.warn('re-render after language change failed', e); }
@@ -1256,7 +1366,7 @@ function hasKey() { return !!lsGet('ss_gemini_key'); }
 //  INIT
 // ═══════════════════════════════════
 window.addEventListener('DOMContentLoaded', () => {
-  const steps = [applyTextSize, lockIfNeeded, registerOffline, initI18n, ensureFocus, updateGradeDropdown, checkApiBanner, checkOffline, updateGreeting, loadProfileDisplay, renderCheckin, checkOnboarding];
+  const steps = [applyTextSize, lockIfNeeded, registerOffline, initI18n, ensureFocus, updateGradeDropdown, checkApiBanner, checkOffline, updateGreeting, loadProfileDisplay, renderCheckin, checkOnboarding, updateSubjectDropdown, restoreDraft, renderStepbars];
   steps.forEach(fn => { try { fn(); } catch(e) { console.error('init step failed:', fn.name, e); } });
   window.addEventListener('online',  checkOffline);
   window.addEventListener('offline', checkOffline);
@@ -1299,12 +1409,30 @@ function checkApiBanner() { show('api-banner', !hasKey()); }
 function niceName(n) { return /^[a-z]/.test(n) ? n.charAt(0).toUpperCase() + n.slice(1) : n; }
 function updateGreeting() {
   const name = lsGet('ss_name');
-  $('screen1-heading').innerHTML = (name ? esc(tr('Hi {name},', { name: niceName(name.split(' ')[0]) })) : esc(tr('Hi —'))) + '<br>' + esc(tr("let's talk about today's lesson"));
+  $('screen1-heading').innerHTML = (name ? esc(tr('Hi {name},', { name: niceName(name.split(' ')[0]) })) : esc(tr('Hello,'))) + '<br>' + esc(tr("let's talk about today's lesson"));
 }
 
 function checkOnboarding() {
   if (!lsGet('ss_onboarded')) { show('onboarding'); $('bottom-nav').style.display = 'none'; }
 }
+const FIT_REASONS = [['impossible', 'Not possible in my class'], ['misread', 'Misread what happened'], ['generic', 'Too general'], ['language', 'Wrong language'], ['other', 'Something else']];
+function openFit() {
+  show('fit-open', false); show('fit-panel');
+  $('fit-reasons').innerHTML = FIT_REASONS.map(([id, l]) => `<button class="chip" data-fit="${id}" onclick="pickFit(this)">${esc(tr(l))}</button>`).join('');
+  $('fit-text').value = '';
+  const canRedo = !!lsGet('ss_gemini_key') && navigator.onLine; show('fit-redo', canRedo);
+}
+function pickFit(b) { document.querySelectorAll('#fit-reasons .chip').forEach(x => x.classList.toggle('selected', x === b)); }
+function submitFit(redo) {
+  const sel = document.querySelector('#fit-reasons .chip.selected');
+  const fb = { reason: sel ? sel.dataset.fit : 'other', text: $('fit-text').value.trim().substring(0, 400), previousTry: state.note ? state.note.try : '', date: new Date().toISOString() };
+  const l = lsGetJSON('ss_sessions', []); const r = l.find(x => x.id === state.sessionId);
+  if (r) { r.feedback = (r.feedback || []).concat([fb]); lsSetJSON('ss_sessions', l); }
+  show('fit-panel', false); show('fit-open');
+  if (redo) { state.fitFeedback = fb; showFeedbackScreen(); }
+  else toast(tr('Thank you. Meera will keep this in mind.'));
+}
+function reopenOnboarding() { closeSettings(true); show('onboarding'); $('bottom-nav').style.display = 'none'; window.scrollTo(0, 0); }
 function dismissOnboarding() {
   lsSet('ss_onboarded', '1');
   show('onboarding', false);
@@ -1314,24 +1442,31 @@ function dismissOnboarding() {
 // ═══════════════════════════════════
 //  NAVIGATION
 // ═══════════════════════════════════
+let navFromBack = false;
 function goTo(id) {
+  const cur = document.querySelector('.screen.active');
+  if (!navFromBack && cur && cur.id !== id) history.pushState({ screen: id, step: state.step }, '', location.href);
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   $(id).classList.add('active');
   window.scrollTo(0, 0);
 }
-function hasUnsavedNote() { return state.noteShown && !state.saved; }
+// The phone's back button moves back through the app (closing Settings first) instead of leaving it.
+const TAB_OF = { 'screen-history': 'nav-history', 'screen-tiptalk': 'nav-tiptalk', 'screen-learn': 'nav-learn' };
+window.addEventListener('popstate', e => {
+  if ($('settings-sheet').classList.contains('open')) { closeSettings(true); return; }
+  if (location.hash === '#lab') return;
+  const st = e.state; if (!st || !st.screen) return;
+  navFromBack = true;
+  try {
+    if (TAB_OF[st.screen]) navTo(st.screen, TAB_OF[st.screen]);
+    else goStep({ 'screen-record': 1, 'screen-reflect': 2, 'screen-feedback': 3 }[st.screen] || 1);
+  } finally { navFromBack = false; }
+});
+window.addEventListener('DOMContentLoaded', () => { try { history.replaceState({ screen: document.querySelector('.screen.active').id }, '', location.href); } catch(e) {} });
 
 function navTo(screenId, navId) {
-  const current = document.querySelector('.screen.active');
-  // Guard: leaving the note screen with an unsaved note
-  if (current && current.id === 'screen-feedback' && screenId !== 'screen-feedback' && hasUnsavedNote()) {
-    state.pendingNav = [screenId, navId];
-    show('unsaved-warning');
-    $('unsaved-warning').scrollIntoView({ behavior:'smooth', block:'center' });
-    return;
-  }
-  // After a saved session, the Today tab starts fresh. Otherwise a draft is never wiped.
-  if (screenId === 'screen-record' && state.saved) resetSession();
+  // Tabs never block and never lose work. "Today" returns to the step you were on.
+  if (screenId === 'screen-record') return goStep(state.step || 1);
   goTo(screenId);
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   $(navId).classList.add('active');
@@ -1340,21 +1475,90 @@ function navTo(screenId, navId) {
   if (screenId === 'screen-learn')   renderLearn();
 }
 
-function leaveWithoutSaving() {
-  show('unsaved-warning', false);
-  const dest = state.pendingNav || ['screen-record','nav-home'];
-  resetSession();
-  navTo(dest[0], dest[1]);
+// ── the Today flow: 1 Lesson → 2 Reflect → 3 Note ──
+const STEP_SCREENS = { 1: 'screen-record', 2: 'screen-reflect', 3: 'screen-feedback' };
+function goStep(n) {
+  if (n === 3 && !state.noteShown && !state.note) n = state.lessonText ? 2 : 1;
+  if (n === 2 && !state.lessonText) n = 1;
+  state.step = n;
+  goTo(STEP_SCREENS[n]);
+  document.querySelectorAll('.nav-item').forEach(x => x.classList.remove('active'));
+  $('nav-home').classList.add('active');
+  if (n === 2) { renderClassStateChips(); updateFeedbackBtn(); }
+  renderStepbars(); saveDraft();
 }
-function requestNewSession() {
-  if (hasUnsavedNote()) {
-    state.pendingNav = ['screen-record','nav-home'];
-    show('unsaved-warning');
-    $('unsaved-warning').scrollIntoView({ behavior:'smooth', block:'center' });
-    return;
-  }
-  resetSession();
-  navTo('screen-record','nav-home');
+function renderStepbars() {
+  const reach = state.noteShown ? 3 : state.lessonText ? 2 : 1;
+  const labels = ['Lesson', 'Reflect', 'Note'];
+  [1, 2, 3].forEach(k => {
+    const el = $('stepbar-' + k); if (!el) return;
+    el.innerHTML = labels.map((l, i) => {
+      const n = i + 1, cls = n === state.step ? 'cur' : n <= reach ? 'done' : '';
+      return (i ? '<span class="ln"></span>' : '') + `<button class="st ${cls}" ${cls === 'done' ? `onclick="goStep(${n})"` : 'disabled'}><span class="dot">${cls === 'done' && n < state.step ? '✓' : n}</span>${esc(tr(l))}</button>`;
+    }).join('');
+  });
+}
+function newClass() {
+  resetSession(); goStep(1); window.scrollTo(0, 0);
+}
+function deleteNote() {
+  const id = state.sessionId;
+  const snap = { sessions: lsGet('ss_sessions'), commitment: lsGet('ss_commitment'), draft: lsGet('ss_draft') };
+  lsSetJSON('ss_sessions', lsGetJSON('ss_sessions', []).filter(x => x.id !== id));
+  const c = getCommitment(); if (c && c.sessionId === id) lsDel('ss_commitment');
+  newClass();
+  toast(tr('Note deleted.'), () => {
+    lsSet('ss_sessions', snap.sessions); snap.commitment ? lsSet('ss_commitment', snap.commitment) : lsDel('ss_commitment');
+    lsSet('ss_draft', snap.draft); restoreDraft(); toast(tr('Note restored.'));
+  });
+}
+// ── a short message at the bottom of the screen, for actions that change something ──
+let toastTimer = null;
+let toastUndo = null;
+function toast(msg, undo) {
+  const t = $('toast'); toastUndo = undo || null;
+  t.innerHTML = `<span>${esc(msg)}</span>` + (undo ? `<button class="toast-undo" onclick="runUndo()">${esc(tr('Undo'))}</button>` : '');
+  show('toast');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => { show('toast', false); toastUndo = null; }, undo ? 6000 : 2800);
+}
+function runUndo() { const f = toastUndo; toastUndo = null; show('toast', false); if (f) f(); }
+// snapshot the coaching-loop state so a change can be undone exactly
+function loopSnapshot() { return { focus: lsGet('ss_focus'), habits: lsGet('ss_habits') }; }
+function restoreLoop(snap) {
+  snap.focus ? lsSet('ss_focus', snap.focus) : lsDel('ss_focus');
+  snap.habits ? lsSet('ss_habits', snap.habits) : lsDel('ss_habits');
+  renderCheckin();
+  const cur = document.querySelector('.screen.active').id;
+  if (cur === 'screen-history') renderJourney(); if (cur === 'screen-learn') renderLearn();
+  toast(tr('Undone.'));
+}
+// ── draft: the lesson in progress is kept on the phone, so a reload or a call loses nothing ──
+function todayKey() { return new Date().toDateString(); }
+function saveDraft() {
+  const d = { day: todayKey(), step: state.step, subject: readForm().subject, grade: $('grade').value, topic: $('topic').value,
+    text: $('lesson-text-input').value, answer: $('reflect-text-input').value, chips: state.classStates.map(c => c.id),
+    lessonText: state.lessonText, question: state.reflectionQuestion, sessionId: state.sessionId, demoKey: state.demoKey,
+    note: state.noteShown ? state.note : null, noteSource: state.noteSource, focusDim: state.focusDim };
+  lsSetJSON('ss_draft', d);
+  show('clear-draft', !!(d.text || d.subject) && state.step === 1);
+}
+function restoreDraft() {
+  const d = lsGetJSON('ss_draft', null); if (!d) return;
+  if (d.note && d.day !== todayKey()) { lsDel('ss_draft'); return; }   // yesterday's finished note → start fresh today
+  if (d.grade) ensureGradeOption(d.grade);
+  ensureSubjectOption(d.subject); $('subject').value = d.subject || ''; $('grade').value = d.grade || ''; $('topic').value = d.topic || '';
+  $('lesson-text-input').value = d.text || ''; $('reflect-text-input').value = d.answer || '';
+  Object.assign(state, { subject: d.subject || '', grade: d.grade || '', topic: (d.topic || '').trim(), lessonText: d.lessonText || '',
+    reflectionQuestion: d.question || '', sessionId: d.sessionId || null, demoKey: d.demoKey || '',
+    classStates: (d.chips || []).map(id => CLASS_STATE_CHIPS.find(c => c.id === id)).filter(Boolean) });
+  if (d.question) $('reflection-question').textContent = '"' + d.question + '"';
+  onFormInput();
+  if (d.note) { state.saved = true; renderNote(d.note, d.noteSource, '', true); }
+  goStep(d.note ? 3 : (d.step === 2 && d.lessonText ? 2 : 1));
+}
+function clearDraft(btn) {
+  if (!btn.dataset.sure) { btn.dataset.sure = '1'; btn.textContent = tr('Tap again to clear'); setTimeout(() => { if (btn.isConnected) { btn.dataset.sure = ''; btn.textContent = tr('Clear and start over'); } }, 3000); return; }
+  btn.dataset.sure = ''; btn.textContent = tr('Clear and start over'); newClass();
 }
 
 // ═══════════════════════════════════
@@ -1362,7 +1566,7 @@ function requestNewSession() {
 // ═══════════════════════════════════
 function readForm() {
   return {
-    subject: $('subject').value,
+    subject: $('subject').value === '__other' ? $('subject-other').value.trim().replace(/\s+/g, ' ').substring(0, 40) : $('subject').value,
     grade:   $('grade').value,
     topic:   $('topic').value.trim(),
     text:    $('lesson-text-input').value.trim(),
@@ -1376,6 +1580,7 @@ function onFormInput() {
   const ok = f.subject && f.grade && f.text.length >= 10;
   $('proceed-btn').disabled = !ok;
   show('proceed-hint', !ok);
+  if (typeof saveDraft === 'function' && document.readyState !== 'loading') saveDraft();
 }
 
 function toggleDemoMode() {
@@ -1386,11 +1591,12 @@ function toggleDemoMode() {
 function onDemoSelect() {
   const t = DEMO_TRANSCRIPTS[$('demo-select').value];
   if (!t) return;
-  $('subject').value = t.subject;
+  ensureSubjectOption(t.subject); $('subject').value = t.subject; show('subject-other-field', false);
   ensureGradeOption(t.grade);
   $('grade').value = t.grade;
   $('topic').value = t.topic;
-  $('lesson-text-input').value = t.text; state.demoKey = $('demo-select').value;   // sample lives in the textarea, so edits never wipe it
+  $('lesson-text-input').value = t.text; state.demoKey = $('demo-select').value;
+  setTimeout(() => { const b = $('proceed-btn'); b.scrollIntoView({ behavior:'smooth', block:'center' }); b.classList.remove('pulse'); void b.offsetWidth; b.classList.add('pulse'); }, 50);   // sample lives in the textarea, so edits never wipe it
   onFormInput();
 }
 function ensureGradeOption(g) {
@@ -1408,10 +1614,10 @@ async function proceedToReflection() {
     return;
   }
   const lessonChanged = f.text !== state.lessonText || f.topic !== state.topic;
+  if (lessonChanged && state.noteShown) { state.noteShown = false; state.note = null; }   // a changed lesson needs a new note
   Object.assign(state, { subject:f.subject, grade:f.grade, topic:f.topic, lessonText:f.text });
-  goTo('screen-reflect');
-  renderClassStateChips();
-  updateFeedbackBtn();
+  if ($('subject').value === '__other') { rememberSubject(f.subject); ensureSubjectOption(f.subject); $('subject').value = f.subject; show('subject-other-field', false); }
+  goStep(2);
   // Only (re)generate the question if the lesson description changed
   if (!lessonChanged && state.reflectionQuestion) return;
   await generateReflectionQuestion();
@@ -1431,7 +1637,7 @@ function renderClassStateChips() {
       const i = state.classStates.findIndex(s => s.id === chip.id);
       if (i >= 0) state.classStates.splice(i, 1); else state.classStates.push(chip);
       b.classList.toggle('selected', i < 0);
-      updateFeedbackBtn();
+      updateFeedbackBtn(); saveDraft();
     };
     box.appendChild(b);
   });
@@ -1439,6 +1645,7 @@ function renderClassStateChips() {
 function updateFeedbackBtn() {
   const typed = $('reflect-text-input').value.trim();
   $('feedback-btn').disabled = !(state.classStates.length > 0 || typed.length > 3);
+  if (state.step === 2) saveDraft();
 }
 
 async function generateReflectionQuestion() {
@@ -1515,11 +1722,10 @@ async function showFeedbackScreen() {
   [state.subject, state.grade, state.topic].filter(Boolean).forEach(t => {
     const s = document.createElement('span'); s.className = 'info-tag'; s.textContent = t; tags.appendChild(s);
   });
-  goTo('screen-feedback');
-  ['note-card','note-error','note-no-key','retry-banner','unsaved-warning','copy-note-btn','followup-wrap','learn-more-btn'].forEach(id => show(id, false));
+  state.noteShown = false; state.step = 3; goTo('screen-feedback'); renderStepbars();
+  document.querySelectorAll('.nav-item').forEach(x => x.classList.remove('active')); $('nav-home').classList.add('active');
+  ['note-card','note-error','note-no-key','retry-banner','done-card','fit-card','copy-note-btn','followup-wrap','learn-more-btn'].forEach(id => show(id, false));
   show('note-generating');
-  $('save-btn').disabled = true; $('save-btn').textContent = 'Save — this is my move for tomorrow ✓'; show('saved-line', false);
-  state.saved = false; state.noteShown = false;
 
   const key = lsGet('ss_gemini_key');
   let note, source, errMsg = '';
@@ -1535,7 +1741,7 @@ async function showFeedbackScreen() {
   renderNote(note, source, errMsg);
 }
 
-function renderNote(note, source, errMsg) {
+function renderNote(note, source, errMsg, restoring) {
   state.note = note; state.noteSource = source; state.noteShown = true;
   state.focusDim = DIM_IDS.includes(note.focus_dim) ? note.focus_dim : null;
   $('note-safety-text').textContent = note.safety_note || '';
@@ -1549,8 +1755,8 @@ function renderNote(note, source, errMsg) {
   show('learn-more-btn', !!state.focusDim);
   const focus = getFocus();
   const fl = $('note-focus-line');
-  if (focus && state.focusDim === focus.dim) { fl.textContent = '↳ ' + tr('This builds on your focus: {m}', { m: tr(DIM_NAMES[focus.dim]) }); show('note-focus-line'); }
-  else if (focus && state.focusDim) { fl.textContent = '↳ ' + tr('This is about "{a}" — different from your focus ({b}). Your focus stays the same unless you change it on the Journey tab.', { a: tr(DIM_NAMES[state.focusDim]), b: tr(DIM_NAMES[focus.dim]) }); show('note-focus-line'); }
+  if (focus && state.focusDim === focus.dim) { fl.textContent = '↳ ' + tr('This builds on this week\'s move: {m}', { m: tr(DIM_NAMES[focus.dim]) }); show('note-focus-line'); }
+  else if (focus && state.focusDim) { fl.textContent = '↳ ' + tr('Tomorrow\'s suggestion is about "{a}". This week\'s move is still "{b}".', { a: tr(DIM_NAMES[state.focusDim]), b: tr(DIM_NAMES[focus.dim]) }); show('note-focus-line'); }
   else show('note-focus-line', false);
   const ev = focus && note.focus_evidence === 'strong' && lsGetJSON('ss_habits', []).every(h => h.dim !== focus.dim);
   if (ev) $('evidence-text').textContent = tr('Meera noticed you already do "{m}" well. Mark it as part of your teaching and move to the next step on your path?', { m: tr(DIM_NAMES[focus.dim]) });
@@ -1558,7 +1764,6 @@ function renderNote(note, source, errMsg) {
   state.rehearsed = false;
   $('rehearse-btn').className = 'rehearse-btn'; $('rehearse-btn').textContent = 'I said it ✓';
   if (note.script) { $('rehearse-script').textContent = note.script; show('rehearse-box'); } else show('rehearse-box', false);
-  $('save-btn').disabled = false;
   show('copy-note-btn');
 
   const key = hasKey();
@@ -1579,6 +1784,12 @@ function renderNote(note, source, errMsg) {
   $('followup-toggle').querySelector('span').textContent = 'Ask Meera a follow-up';
   $('chat-thread').innerHTML = ''; show('chat-thread', false);
   show('followup-suggestions'); show('chat-input-row'); show('chat-limit', false); setPh($('chat-input'), 'Or ask your own question…');
+  if (!restoring) { autoSave(); state.fitFeedback = null; }
+  show('fit-card'); show('fit-panel', false); show('fit-open');
+  const canChat = !!lsGet('ss_gemini_key') && navigator.onLine;
+  show('followup-nokey', !canChat); show('followup-suggestions', canChat); show('chat-input-row', canChat);
+  $('done-title').textContent = state.saved !== false ? tr('✓ Saved in your journey.') : tr("Couldn't save — your phone's storage may be full.");
+  show('done-card'); renderStepbars(); saveDraft();
 }
 
 async function retryWithAI() {
@@ -1586,7 +1797,6 @@ async function retryWithAI() {
   if (!key) return showKeySection();
   if (!navigator.onLine) { $('retry-text').textContent = 'Still offline — connect to the internet and try again.'; return; }
   show('retry-banner', false); show('note-card', false); show('note-error', false); show('note-generating');
-  $('save-btn').disabled = true;
   try {
     renderNote(await requestCoachingNote(key), 'ai', '');
   } catch(e) {
@@ -1640,6 +1850,7 @@ async function geminiCall(apiKey, body, chain = CHAIN_LIGHT, opts = {}) {
       await paceModel(m);
       const gc = { ...(body.generationConfig || {}) };
       if (m.thinking) gc.thinkingConfig = { thinkingLevel: m.thinking };
+      if (m.thinkingBudget) gc.thinkingConfig = { thinkingBudget: m.thinkingBudget };
       const ctrl = new AbortController(), t0 = Date.now();
       const timer = setTimeout(() => ctrl.abort(), timeout);
       let res;
@@ -1825,10 +2036,10 @@ ${isUrgent() ? SAFETY_RULES : SAFETY_BRIEF}
 ${INPUT_RULE}
 
 HOW TO COACH
-1. Talk only about what the teacher actually wrote. Never invent details, and never assume something did not happen just because it was not mentioned.
+1. Talk only about what the teacher actually wrote. Never invent details — if they say they sat at the desk, do not say they walked around — and never assume something did not happen just because it was not mentioned.
 2. One idea only. It must work tomorrow in a large or multi-grade class with a blackboard and no materials: an ordinary, well-known move with realistic numbers (wait 3–5 seconds), no gimmicks, no "always/never" rules.
 3. Kind and plain: speak to "you"; no blame ("you should have", "you didn't"); no jargon; no empty praise; statements, not questions (except followups).
-4. If the teacher sounds hopeless about students, say gently in "pattern" that every child can make progress.
+4. Only if the teacher says something hopeless about students (e.g. "they can't learn"), say gently in "pattern" that every child can make progress. Otherwise do not add general statements like that — speak to what happened.
 5. If the lesson went well, "pattern" names what made it work — do not hunt for a problem.`;
 }
 
@@ -1843,7 +2054,7 @@ ${state.lessonText.substring(0, 3000)}
 >>>
 The teacher ticked: ${chips || '(nothing)'}
 Meera asked: "${state.reflectionQuestion || '(none)'}" — the teacher answered: ${state.skipped || !state.reflectAnswer ? '(skipped)' : '<<<' + state.reflectAnswer.substring(0, 800) + '>>>'}
-${loopContext()}
+${loopContext()}${state.fitFeedback ? `\nTHE TEACHER SAID THE LAST SUGGESTION DIDN'T FIT (${state.fitFeedback.reason}${state.fitFeedback.text ? ': "' + state.fitFeedback.text + '"' : ''}). The last suggestion was: "${state.fitFeedback.previousTry}". Give a clearly different suggestion that fits what she said.\n` : ''}
 Write the note as JSON. The fields are one plan: "try" is the single action; "script" is its exact words; "tip" is it in 15 words; "followups" are about doing it.
 - safety_note: "" unless the safety rules apply (then 2–4 calm sentences).
 - strength (max 40 words): one specific thing the teacher actually did and why it helped students. Even on a hard day there is something real (kept going, noticed a problem, settled or separated children, wrote honestly about it) — name that. Never praise something the teacher did not describe; if the description is almost empty, say briefly that noting even a little after class is a good habit.
@@ -1893,7 +2104,7 @@ function setFocus(dim) { lsSetJSON('ss_focus', { dim, since: new Date().toISOStr
 
 function renderCheckin() {
   const tf = getFocus();
-  if (tf) { $('today-focus').textContent = '🎯 ' + tr("This week's move: {m}", { m: tr(DIM_NAMES[tf.dim]) }); show('today-focus'); } else show('today-focus', false);
+  if (tf && lsGetJSON('ss_sessions', []).length) { $('today-focus').textContent = '🎯 ' + tr("This week's move: {m}", { m: tr(DIM_NAMES[tf.dim]) }) + ' ›'; show('today-focus'); } else show('today-focus', false);
   const c = getCommitment();
   const answeredNow = state.checkin && c && c.sessionId === state.checkin.sessionId;
   if (!c || state.checkinDeferred || (c.status !== 'open' && !answeredNow)) { show('checkin-card', false); return; }
@@ -1939,6 +2150,17 @@ function deferCheckin() { state.checkinDeferred = true; show('checkin-card', fal
 const URGENT_RX = /\b(slap\w*|smack\w*|caned|bruise[sd]?|abuse[sd]?|thappad|pitai|peeta|peeti|maara|maari|fight\w*|jhagad\w*|jhagda|ladai|tired|exhausted|thak\w*)\b|\bhit\b|\bbeat(s|en|ing)?\s+(me|him|her|them)\b|could ?n'?t teach|could not teach|nahi padha|want to disappear|end my life|cannot go on|can'?t go on|मारा|मारी|पीट|थप्पड़|पिटाई|झगड़|लड़ाई|थक|पढ़ा नहीं/i;
 function isUrgent() { return URGENT_RX.test(state.lessonText + ' ' + (state.reflectAnswer || '')); }
 // A concrete harder version of each move, for teachers who already do the basic one
+// The smallest useful version of each move, for a teacher who has not managed it yet after several tries
+const SMALLEST = {
+  wait_time:    'after your FIRST question only, count silently to five before anyone answers — nothing else changes',
+  cold_call:    'once, early in the lesson, ask a question and then say one name — any student',
+  prior_review: 'start with ONE question about yesterday before opening the book',
+  small_steps:  'after your first explanation, give ONE practice question before moving on',
+  cfu_quality:  'once, ask one named student to explain the idea back in their own words',
+  student_talk: 'once, give 30 seconds for partners to tell each other the answer',
+  uptake:       'once, after a student answers, ask "Who can add to that?"',
+  back_row:     'during practice, walk to the back row first — just once',
+};
 const STRETCH = {
   wait_time:    'after the pause, call a student who did NOT raise a hand and ask "Why do you think so?"',
   cold_call:    'after a one-word answer, ask "Say more" or "Why?" before moving on — and include the quietest students',
@@ -1962,7 +2184,7 @@ function loopContext() {
     lines.push(`THIS WEEK'S MOVE: "${DIM_NAMES[f.dim]}". Decide first: does the description show the teacher already doing it well?
 - If YES${st === 3 ? ' (or anyway — they are at the last stage)' : ''}: say so in "strength", set focus_evidence "strong", and make "try" this harder version: ${STRETCH[f.dim]}.
 - If NO: make "try" ${st === 3 ? 'the harder version above' : small} of this move.`);
-    if (n('notyet') >= 2 && n('yes') === 0) lines.push(`They have not managed it after several tries: make it much smaller and gently name one likely obstacle in "pattern" — no blame.`);
+    if (n('notyet') >= 2 && n('yes') === 0) lines.push(`They have not managed it after several tries. Make "try" exactly this tiny step and nothing more: ${SMALLEST[f.dim]}. Gently name one likely obstacle from their words in "pattern" — no blame.`);
   }
   const habits = state.labHabits || lsGetJSON('ss_habits', []);
   if (habits.length) lines.push(`Already habits (do not re-teach): ${habits.map(h => DIM_NAMES[h.dim]).join(', ')}.`);
@@ -1971,6 +2193,7 @@ function loopContext() {
 
 function acceptEvidence() { const f = getFocus(); if (f) addHabit(f.dim, false); show('evidence-box', false); const n = getFocus(); $('note-focus-line').textContent = n ? '↳ ' + tr('Next on your path: {m}', { m: tr(DIM_NAMES[n.dim]) }) : ''; show('note-focus-line', !!n); }
 function markRehearsed() {
+  setTimeout(() => { if (state.sessionId) { const l = lsGetJSON('ss_sessions', []); const r = l.find(x => x.id === state.sessionId); if (r) { r.rehearsed = state.rehearsed; lsSetJSON('ss_sessions', l); } } }, 0);
   state.rehearsed = !state.rehearsed;
   $('rehearse-btn').classList.toggle('done', state.rehearsed);
   $('rehearse-btn').textContent = state.rehearsed ? '✓ Said it — ready for tomorrow' : 'I said it ✓';
@@ -2000,21 +2223,25 @@ function nextPathDim() { const h = habitDims(); return PATH_ORDER.find(d => !h.i
 function levelIndexOf(dim) { return PATH.findIndex(l => l.dims.includes(dim)); }
 function ensureFocus() { if (!getFocus()) { const d = nextPathDim(); if (d) setFocus(d); } }
 function stageOf(f) { const yes = f.tries.filter(t => t.result === 'yes').length; return yes === 0 ? 1 : yes < 3 ? 2 : 3; }
-function addHabit(dim, self) {
+function addHabit(dim, self, quiet) {
   const h = lsGetJSON('ss_habits', []); if (h.some(x => x.dim === dim)) return;
+  const snap = loopSnapshot();
   const f = getFocus();
   h.push({ dim, date: new Date().toISOString(), tries: f && f.dim === dim ? f.tries.length : 0, self: !!self });
   lsSetJSON('ss_habits', h);
   if (f && f.dim === dim) lsDel('ss_focus');
   ensureFocus(); renderCheckin();
+  if (quiet) return;
+  const nx = getFocus(); toast(nx ? tr('Marked as a habit. Next up: {m}', { m: tr(DIM_NAMES[nx.dim]) }) : tr('Marked as a habit.'), () => restoreLoop(snap));
 }
 function markHabit() { const f = getFocus(); if (f) addHabit(f.dim, false); renderJourney(); }
-function alreadyDo(dim, btn) {
-  if (btn && !btn.dataset.sure) { btn.dataset.sure = '1'; btn.textContent = tr('Tap again to confirm'); setTimeout(() => { if (btn.isConnected) { btn.dataset.sure = ''; btn.textContent = tr('I already do this'); } }, 3000); return; }
-  addHabit(dim, true); renderJourney();
+function alreadyDo(dim) { addHabit(dim, true); renderJourney(); }
+function savePlacement() {
+  const snap = loopSnapshot(); const picked = [...document.querySelectorAll('.place-cb:checked')];
+  picked.forEach(cb => addHabit(cb.value, true, true)); renderJourney();
+  if (picked.length) { const nx = getFocus(), m = nx ? tr(DIM_NAMES[nx.dim]) : '–'; toast(picked.length === 1 ? tr('Marked as a habit. Next up: {m}', { m }) : tr('{n} moves marked as habits. Next up: {m}', { n: picked.length, m }), () => restoreLoop(snap)); }
 }
-function savePlacement() { document.querySelectorAll('.place-cb:checked').forEach(cb => addHabit(cb.value, true)); renderJourney(); }
-function focusOn(dim) { const f = getFocus(); if (!(f && f.dim === dim)) setFocus(dim); renderCheckin(); renderJourney(); }
+function focusOn(dim) { const snap = loopSnapshot(); const f = getFocus(); if (!(f && f.dim === dim)) setFocus(dim); renderCheckin(); renderJourney(); toast(tr('This week’s move is now: {m}', { m: tr(DIM_NAMES[dim]) }), () => restoreLoop(snap)); }
 function completedLevels() { const h = habitDims(); return PATH.map((l, i) => l.dims.every(d => h.includes(d)) ? i : -1).filter(i => i >= 0); }
 function dismissLevel(i) { const seen = lsGetJSON('ss_levels_seen', []); seen.push(i); lsSetJSON('ss_levels_seen', seen); renderJourney(); }
 
@@ -2050,7 +2277,7 @@ function renderFocusCard() {
   }
   if (f && !f.tries.length && !h.length) html += `<details style="margin-top:12px;"><summary class="link-btn" style="cursor:pointer;">${esc(tr('Experienced? Skip moves you already do'))}</summary>
     <p class="hint" style="margin:6px 0;">${esc(tr('Tick the moves you already use in most lessons. You will start further along the path.'))}</p>
-    ${PATH_ORDER.map(d => `<label class="path-move" style="color:var(--ink);cursor:pointer;"><input type="checkbox" class="place-cb" value="${d}" style="width:20px;height:20px;"/> <span>${esc(tr(DIM_NAMES[d]))}</span></label>`).join('')}
+    ${PATH_ORDER.map(d => `<label class="path-move place-row" style="color:var(--ink);"><input type="checkbox" class="place-cb" value="${d}"/> <span>${esc(tr(DIM_NAMES[d]))}</span></label>`).join('')}
     <button class="btn-small" style="margin-top:6px;background:var(--accent);color:#fff;" onclick="savePlacement()">${esc(tr('Start from the right place'))}</button></details>`;
   const doneCount = h.filter(d => PATH_ORDER.includes(d)).length;
   html += `<details ${f ? '' : 'open'} style="margin-top:14px;border-top:1px solid var(--border);padding-top:10px;">
@@ -2093,6 +2320,7 @@ function fallbackNote() {
   const confusion = chip('confused','no_check') || said('confusion');
   const disengage = chip('same_few','back_lost') || said('disengage');
   const rushed = chip('rushed') || said('rushed');
+  const backrows = chip('back_lost') || /peeche|piche|पीछे|back row|back bench|last bench|at the back/i.test(words);
   // a hopeful chip never overrides the teacher's own words about a hard lesson
   const positive = (chip('good_energy','better','quiet') || said('positive')) && !said('confusion') && !said('disengage');
   const multigrade = gradeBand(state.grade, state.lessonText) === 'multigrade';
@@ -2103,6 +2331,11 @@ function fallbackNote() {
     tryThis = 'Tomorrow, before you start with one class, write one clear 10-minute task for each other group on the board, and name one child in each group as the helper who comes to you with questions.';
     tip = 'Give each waiting group one clear task and a helper before you begin.';
     multiScript = 'Class 1, your work is on this side of the board — Priya is your helper. Class 3, come closer, we start now.';
+  } else if (backrows && !positive) {
+    dim = 'back_row';
+    pattern = 'The children at the back drifted away from the lesson. Children who sit far from the teacher are easy to lose, and they often stay quiet when they have not understood.';
+    tryThis = 'Tomorrow, during practice time, walk to the back row first and ask two children there to show you their work or tell you their answer.';
+    tip = 'Start your walk from the back row and check two children there.';
   } else if (positive && (confusion || disengage || rushed)) {
     const pos = state.classStates.filter(s => ['good_energy','better','quiet'].includes(s.id)).map(s => tr(s.label)).join(tr(' and '));
     const neg = state.classStates.filter(s => !['good_energy','better','quiet'].includes(s.id)).map(s => tr(s.label)).join(tr(' and '));
@@ -2152,51 +2385,54 @@ function fallbackNote() {
     ? `You tried last time's move in a real class — that's the hardest step, and many teachers never take it.`
     : positive
     ? `You noticed what went well today — that noticing is itself a teaching skill. A teacher who sees what works can repeat it.`
-    : `You showed up, taught your class, and took time to reflect on it — that habit of pausing to notice what happened is where every good teacher begins.`;
-  return { safety_note: fallbackSafety(state.lessonText + ' ' + state.reflectAnswer), strength: tr(strength), pattern: tr(pattern), try: tr(tryThis), tip: tr(tip), focus_dim: dim, script,
+    : null;
+  const plain = tr('You taught {s} to {g} today and took a few minutes afterwards to look back at how it went.', { s: tr(state.subject || 'your lesson'), g: tr(state.grade || 'your class') });
+  return { safety_note: fallbackSafety(state.lessonText + ' ' + state.reflectAnswer), strength: strength ? tr(strength) : plain, pattern: tr(pattern), try: tr(tryThis), tip: tr(tip), focus_dim: dim, script,
     followups:['How do I do this with 50 students?','What if students still don\u2019t respond?','How do I fit this into a packed syllabus?'].map(q => tr(q)) };
 }
 
 // ═══════════════════════════════════
 //  SAVE / RESET
 // ═══════════════════════════════════
-function saveSession() {
-  if (state.saved || !state.note) return;
+// A note is saved the moment it appears. Changing the answers and asking again updates the SAME note.
+function autoSave() {
+  if (!state.note) return;
   const now = new Date();
   const sessions = lsGetJSON('ss_sessions', []);
-  sessions.unshift({
-    id: now.getTime(),
-    date: now.toISOString(),
-    dateDisplay: now.toLocaleDateString('en-IN', { day:'numeric', month:'short', year:'2-digit' }),
+  const prev = state.sessionId ? sessions.find(x => x.id === state.sessionId) : null;
+  const id = prev ? prev.id : now.getTime();
+  const rec = {
+    id, date: prev ? prev.date : now.toISOString(),
+    dateDisplay: prev ? prev.dateDisplay : now.toLocaleDateString('en-IN', { day:'numeric', month:'short', year:'2-digit' }),
     subject: state.subject, grade: state.grade,
     topic: state.topic ? state.topic.charAt(0).toUpperCase() + state.topic.slice(1) : '',
     strength: state.note.strength, pattern: state.note.pattern, tryThis: state.note.try, tip: state.note.tip,
+    snippet: state.lessonText.split(/\s+/).slice(0, 6).join(' ') + (state.lessonText.split(/\s+/).length > 6 ? '…' : ''),
     focusDim: state.focusDim, source: state.noteSource, safetyNote: state.note.safety_note || '', model: state.noteSource === 'ai' ? state.noteModel : '',
-    script: state.note.script || '', rehearsed: state.rehearsed,
-    checkinOfPrevious: state.checkin ? { result: state.checkin.result, note: state.checkin.note } : null,
-  });
-  const ok = lsSetJSON('ss_sessions', sessions);
-  const btn = $('save-btn');
-  if (!ok) { btn.textContent = 'Save failed — phone storage may be full'; return; }
-  state.saved = true;
-  btn.textContent = 'Saved ✓'; btn.disabled = true; show('saved-line');
-  // v3 loop: this note's "try" becomes the open commitment; the first note sets the focus
-  lsSetJSON('ss_commitment', { sessionId: sessions[0].id, try: state.note.try, tip: state.note.tip, script: state.note.script || '', dim: state.focusDim, date: sessions[0].date, status:'open' });
+    script: state.note.script || '', rehearsed: !!state.rehearsed,
+    checkinOfPrevious: state.checkin ? { result: state.checkin.result, note: state.checkin.note } : (prev ? prev.checkinOfPrevious : null),
+    feedback: prev && prev.feedback ? prev.feedback : undefined,
+  };
+  const list = prev ? sessions.map(x => x.id === id ? rec : x) : [rec, ...sessions];
+  const ok = lsSetJSON('ss_sessions', list);
+  state.sessionId = id; state.saved = ok;
+  $('done-title').textContent = ok ? tr('✓ Saved in your journey.') : tr("Couldn't save — your phone's storage may be full.");
+  if (!ok) return;
+  lsSetJSON('ss_commitment', { sessionId: id, try: state.note.try, tip: state.note.tip, script: state.note.script || '', dim: state.focusDim, date: rec.date, status:'open' });
   ensureFocus();
-  show('unsaved-warning', false);
-  if (state.pendingNav) { const d = state.pendingNav; state.pendingNav = null; setTimeout(() => navTo(d[0], d[1]), 500); }
 }
+function saveSession() { autoSave(); }   // kept for older callers
 
 function resetSession() {
   Object.assign(state, freshState());
-  ['subject','grade','topic','lesson-text-input','reflect-text-input','demo-select','chat-input'].forEach(id => { $(id).value = ''; });
+  ['subject','subject-other','grade','topic','lesson-text-input','reflect-text-input','demo-select','chat-input'].forEach(id => { $(id).value = ''; }); show('subject-other-field', false);
   $('class-state-chips').innerHTML = '';
   $('proceed-btn').disabled = true; show('proceed-hint');
-  show('demo-panel', false); $('demo-toggle-btn').textContent = 'Try a sample lesson';
-  show('note-card', false); show('unsaved-warning', false);
-  $('save-btn').textContent = 'Save — this is my move for tomorrow ✓'; $('save-btn').disabled = true;
-  $('checkin-note').value = ''; show('saved-line', false);
-  checkApiBanner(); updateGradeDropdown(); renderCheckin();
+  show('demo-panel', false); $('demo-toggle-btn').textContent = tr('Try a sample lesson');
+  show('note-card', false); show('done-card', false); show('fit-card', false);
+  $('checkin-note').value = '';
+  lsDel('ss_draft'); show('clear-draft', false);
+  checkApiBanner(); updateGradeDropdown(); renderCheckin(); renderStepbars();
 }
 
 // ═══════════════════════════════════
@@ -2306,10 +2542,9 @@ function renderJourney() {
     const l = document.createElement('span'); l.style.cssText = 'flex:1;text-align:center;font-size:11px;color:var(--ink3);'; l.textContent = dn[d.getDay()]; labels.appendChild(l);
   }
 
-  const qr = $('quick-rev-list'), tl = $('timeline-list');
+  const tl = $('timeline-list');
   if (!sessions.length) {
-    qr.innerHTML = `<p class="subtext" style="padding:12px 0;text-align:center;">No tips yet — save your first note to see it here.</p>`;
-    tl.innerHTML = `<p class="subtext" style="text-align:center;padding:24px 0;">No sessions yet.</p>`;
+    tl.innerHTML = `<p class="subtext" style="text-align:center;padding:24px 0;">${esc(tr('Your notes will appear here after your first lesson.'))}</p>`;
     return;
   }
   const tipOf = s => s.tip || (s.tryThis || '').substring(0, 80);
@@ -2319,7 +2554,7 @@ function renderJourney() {
       <div class="timeline-item-header">
         <div style="flex:1;">
           <div class="timeline-meta">${esc(fmtDate(s.date))}${s.subject ? ' · ' + esc(tr(s.subject)) : ''}${s.grade ? ', ' + esc(tr(s.grade)) : ''}${s.source === 'template' ? ' · ' + esc(tr('template')) : s.source === 'example' ? ' · ' + esc(tr('sample lesson')) : ''}</div>
-          <div class="timeline-title">${esc(s.topic || tr('Lesson'))}</div>
+          <div class="timeline-title">${esc(s.topic || s.snippet || tr('Lesson'))}</div>
           <div class="timeline-preview" dir="auto">${esc(tipOf(s))}</div>
           ${s.checkin ? `<span class="badge">${esc(tr(RESULT_LABEL[s.checkin.result] || ''))}${s.rehearsed ? ' · ' + esc(tr('rehearsed')) : ''}</span>` : s.rehearsed ? `<span class="badge">${esc(tr('rehearsed'))}</span>` : ''}
         </div>
@@ -2336,11 +2571,10 @@ function renderJourney() {
     </div>`;
   const renderLists = all => {
     const q = all ? sessions : sessions.slice(0, 6);
-    qr.innerHTML = q.map(qrItem).join('');
     tl.innerHTML = q.map(tlItem).join('');
     if (!all && sessions.length > 6) {
       const b = document.createElement('button'); b.className = 'link-btn'; b.style.cssText = 'display:block;margin:4px auto;';
-      b.textContent = tr('Show all {n} sessions', { n: sessions.length }); b.onclick = () => renderLists(true); tl.appendChild(b);
+      b.textContent = tr('Show all {n} notes', { n: sessions.length }); b.onclick = () => renderLists(true); tl.appendChild(b);
     }
   };
   renderLists(false);
@@ -2384,10 +2618,12 @@ async function copyToClipboard(text, btn, label) {
 // ═══════════════════════════════════
 function openSettings(section) {
   loadSettingsSheet();
+  if (!$('settings-sheet').classList.contains('open')) history.pushState({ sheet: true }, '', location.href);
   $('settings-overlay').classList.add('open'); $('settings-sheet').classList.add('open');
   if (section) toggleAcc(section, true);
 }
-function closeSettings() {
+function closeSettings(fromBack) {
+  if (!fromBack && history.state && history.state.sheet) { history.back(); return; }   // the back handler closes it
   $('settings-overlay').classList.remove('open'); $('settings-sheet').classList.remove('open');
   // refresh screens that depend on settings
   const cur = document.querySelector('.screen.active').id;
@@ -2403,7 +2639,7 @@ function toggleAcc(name, forceOpen, noScroll) {
 function showKeySection() { openSettings('key'); }
 
 function loadSettingsSheet() {
-  $('profile-name').value = lsGet('ss_name'); $('profile-school').value = lsGet('ss_school');
+  $('profile-name').value = lsGet('ss_name'); $('profile-school').value = lsGet('ss_school'); $('profile-status').textContent = '';
   const hasProfile = !!lsGet('ss_name');
   ['profile','key','lang','rating','data'].forEach(n => { $('acc-' + n).classList.remove('open'); document.querySelector(`.acc-toggle[data-acc="${n}"]`).classList.remove('open'); });
   if (!hasProfile) toggleAcc('profile', true, true);
@@ -2413,7 +2649,7 @@ function loadSettingsSheet() {
   $('key-status').textContent = key ? '✓ Key saved on this phone' : '';
   $('key-status').className = 'key-status ' + (key ? 'ok' : '');
   $('data-status').textContent = '';
-  loadRatingsUI(); renderGradeChips(); loadCoachLang();
+  loadRatingsUI(); renderGradeChips(); renderSubjectChips(); loadCoachLang();
 }
 function loadProfileDisplay() {
   const name = lsGet('ss_name') || 'Your name', school = lsGet('ss_school') || 'School not set';
@@ -2425,7 +2661,43 @@ function saveProfile() {
   if (name) lsSet('ss_name', name); else lsDel('ss_name');
   if (school) lsSet('ss_school', school); else lsDel('ss_school');
   loadProfileDisplay(); updateGreeting();
-  const b = $('save-profile-btn'); b.textContent = 'Saved ✓'; setTimeout(() => b.textContent = 'Save profile', 1500);
+  $('profile-status').textContent = tr('✓ Saved'); $('profile-status').className = 'key-status ok';
+}
+let profileTimer = null;
+function saveProfileSoon() { clearTimeout(profileTimer); profileTimer = setTimeout(saveProfile, 400); }
+const CORE_SUBJECTS = ["Maths", "Science", "Hindi", "English", "Regional language", "Urdu", "Sanskrit", "Social Science", "EVS", "PE / Sports"];
+function allSubjects() { return CORE_SUBJECTS.concat(lsGetJSON('ss_subjects_custom', []).filter(x => !CORE_SUBJECTS.includes(x))); }
+function updateSubjectDropdown() {
+  const mine = lsGetJSON('ss_subjects', []), sel = $('subject'), cur = sel.value;
+  const list = mine.length ? mine : allSubjects();
+  sel.innerHTML = `<option value="">${esc(tr('— select —'))}</option>` + list.map(x => `<option value="${esc(x)}">${esc(tr(x))}</option>`).join('') + `<option value="__other">${esc(tr('Other…'))}</option>`;
+  if (cur) { ensureSubjectOption(cur); sel.value = cur; }
+}
+function ensureSubjectOption(v) {
+  const sel = $('subject'); if (!v || v === '__other' || [...sel.options].some(o => o.value === v)) return;
+  const o = document.createElement('option'); o.value = v; o.textContent = tr(v); sel.insertBefore(o, sel.lastElementChild);
+}
+function onSubjectChange() { const other = $('subject').value === '__other'; show('subject-other-field', other); if (other) $('subject-other').focus(); onFormInput(); }
+function rememberSubject(x) {
+  if (!x || CORE_SUBJECTS.includes(x)) return;
+  const c = lsGetJSON('ss_subjects_custom', []); if (!c.includes(x)) { c.push(x); lsSetJSON('ss_subjects_custom', c); }
+  const mine = lsGetJSON('ss_subjects', []); if (mine.length && !mine.includes(x)) { mine.push(x); lsSetJSON('ss_subjects', mine); }
+  updateSubjectDropdown();
+}
+function renderSubjectChips() {
+  const mine = lsGetJSON('ss_subjects', []), box = $('subject-chips-profile'); box.innerHTML = '';
+  allSubjects().forEach(x => {
+    const b = document.createElement('button'); b.className = 'grade-chip' + (mine.includes(x) ? ' selected' : ''); b.textContent = tr(x);
+    b.onclick = () => { let m = lsGetJSON('ss_subjects', []); if (!m.length) m = lsGetJSON('ss_subjects_custom', []).slice();   // subjects she typed herself count as hers
+      const i = m.indexOf(x); if (i >= 0) m.splice(i, 1); else m.push(x); lsSetJSON('ss_subjects', m); b.classList.toggle('selected', i < 0); updateSubjectDropdown(); };
+    box.appendChild(b);
+  });
+}
+function addSubject() {
+  const x = $('subject-add').value.trim().replace(/\s+/g, ' ').substring(0, 40); if (!x) return;
+  const c = lsGetJSON('ss_subjects_custom', []); if (!allSubjects().includes(x)) { c.push(x); lsSetJSON('ss_subjects_custom', c); }
+  const mine = lsGetJSON('ss_subjects', []); if (!mine.includes(x)) { mine.push(x); lsSetJSON('ss_subjects', mine); }
+  $('subject-add').value = ''; renderSubjectChips(); updateSubjectDropdown(); toast(tr('Added: {s}', { s: x }));
 }
 function renderGradeChips() {
   const saved = lsGetJSON('ss_grades', []), box = $('grade-chips-profile'); box.innerHTML = '';
@@ -2440,6 +2712,7 @@ function renderGradeChips() {
     box.appendChild(b);
   });
 }
+function updateGradeDropdownAndSubjects() { updateGradeDropdown(); updateSubjectDropdown(); }
 function updateGradeDropdown() {
   const saved = lsGetJSON('ss_grades', []), sel = $('grade'), cur = sel.value;
   const grades = saved.length ? saved : ALL_GRADES;
@@ -2579,7 +2852,7 @@ function renderTiptalk() {
   show('tiptalk-lock', locked); show('tiptalk-unlocked', !locked);
   if (locked) {
     $('tiptalk-progress-fill').style.width = Math.round(count / TIPTALK_UNLOCK_COUNT * 100) + '%';
-    $('tiptalk-progress-label').textContent = tr('{a} of {b} sessions', { a: count, b: TIPTALK_UNLOCK_COUNT });
+    $('tiptalk-progress-label').textContent = tr('{a} of {b} notes', { a: count, b: TIPTALK_UNLOCK_COUNT });
     return;
   }
   const ratings = (lsGetJSON('ss_ratings', {}))[monthKey()] || {}, goals = lsGetJSON('ss_goals', []);
@@ -2936,7 +3209,7 @@ function renderLearn() {
 function toggleLearnCard(id) {
   const open = $('lbody-' + id).classList.toggle('open'); $('lchev-' + id).classList.toggle('open', open);
 }
-function focusFromLearn(id) { setFocus(id); renderCheckin(); renderLearn(); }
+function focusFromLearn(id) { const snap = loopSnapshot(); setFocus(id); renderCheckin(); renderLearn(); toast(tr('This week’s move is now: {m}', { m: tr(DIM_NAMES[id]) }), () => restoreLoop(snap)); }
 function openLearnCard(id) {
   if (!id) return;
   navTo('screen-learn', 'nav-learn');
@@ -3019,6 +3292,57 @@ window.addEventListener('hashchange', checkLabHash);
 window.addEventListener('DOMContentLoaded', checkLabHash);
 </script>
 <!--
+CHANGELOG v5.1 (from v5.0) — from riding the app as a teacher, first launch to day 4
+- Subjects: "Other…" shows a "Subject name" field; the typed subject is remembered. Settings has "Subjects I teach"
+  (like classes) with "Add a subject"; the subject list shows your subjects.
+- Note screen in reading order: note → follow-up → "doesn't fit" → the done card last, with "Copy note" inside it.
+- Without a key, follow-up says it needs a free key (with a button), instead of offering questions that dead-end.
+- "This week's move" on Today appears after the first note, not before anything has been explained.
+- One name each: "Your last suggestion" (yesterday) vs "This week's move"; the note explains the difference plainly
+  (no "focus"). "Clear history" → "Delete saved notes".
+- Journey: notes without a topic are titled with their first words instead of "Lesson".
+- No-key note: responds to "Back rows drifted"; opens with a plain, true line from what she entered
+  (was "You showed up… where every good teacher begins").
+- Text boxes are 44 px high too (were 37–41 px).
+
+CHANGELOG v5.0 (from v4.16; developed as v4.17) — evaluated against the UX and AI playbooks.
+Why 5.0: v4.15–v5.0 changed how the app behaves (three-step flow, notes that save themselves, back button, undo,
+'doesn't fit' feedback), not just how it looks. This release closes that redesign.
+- Tap targets: every control at least 44 px high (50 were under 44 px, 30 under 32 px). Contrast already met WCAG AA.
+- Undo instead of "tap again": deleting a note, marking habits and changing the weekly move can be undone from the
+  confirmation message.
+- "Doesn't fit your class? Tell Meera": pick what didn't fit, add words if you like, and either get a different
+  suggestion (the feedback goes into the next note) or just note it. Feedback is kept with the note for later review.
+- Onboarding says honestly that Meera can misread a lesson; "How Shiksha Saathi works" reopens it from Settings.
+- Greeting without a name reads "Hello," (was "Hi —"). "This week's move" on Today now looks like the link it is. "Clear all saved sessions" → "Delete all saved notes".
+- Eval: headline is a plain pass/fail count; "Grader right / wrong" buttons measure how often the grader agrees with
+  a person; a warning when almost every case passes.
+
+CHANGELOG v4.16 (from v4.15) — second UX audit (Journey, Tip Talk, Learn, Settings)
+- The phone's back button now moves back through the app and closes Settings first (it used to exit the app).
+- Profile saves as you type, like every other setting (a typed name was lost without "Save profile").
+- Journey shows each note once ("All your tips" repeated every tip); "Your notes", "notes", "days in a row".
+- Tip Talk: "Opens after your first 3 notes" instead of "Unlocks after 3 saved sessions".
+- One word for one idea: "move" everywhere (confirmations had said "practice").
+
+CHANGELOG v4.15 (from v4.14) — the flow, redesigned after a UX audit
+- Today is a visible three-step flow (Lesson → Reflect → Note); finished steps can be tapped to go back.
+- Tabs never block and never lose work; "Today" returns to the step you were on.
+- The lesson in progress (form, chips, answer, note) is kept on the phone and survives reloads and calls; a finished
+  note from an earlier day starts a fresh lesson.
+- Notes save themselves the moment they appear. No Save button, no "unsaved" warnings. "Change my answers" and asking
+  again updates the same note instead of adding a duplicate.
+- One "done" card: saved, what happens tomorrow, "Write about another class", "See your journey", "Delete this note".
+- Short confirmations for actions that change things (weekly practice changed, habit marked, note deleted).
+- Picking a sample lesson brings the Continue button into view.
+
+CHANGELOG v4.14 (from v4.13) — from reading the final run (27 Sep, v4.13) as a teacher
+- No invented praise (the run praised a teacher for "walking around" when she wrote she sat at her desk).
+- "Every child can make progress" only when the teacher sounds hopeless (it appeared in 6 notes; warranted in 1).
+- After repeated "not yet", the tip is a written-in-code tiny step per move (the run added a harder element instead).
+- Eval: graders get room to finish (8k tokens; 2.5 Flash thinking budget capped); an unreadable grader reply moves to the
+  next grader instead of failing the case (two cases were lost to cut-off JSON).
+
 CHANGELOG v4.13 (from v4.12) — from Google's usage table (27 Sep)
 - Grader chain now uses every free Flash model, each with its own 20/day limit: 3.8 → 3.7 → 3.6 → 3.5 → 3 → 2.5 Flash
   (≈120 strict gradings a day; a full eval needs ~33), then the 3.1 Flash-Lite backup.
