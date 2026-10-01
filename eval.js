@@ -275,10 +275,12 @@ async function runOneCase(key, c, genChain, judgeChain, gap) {
     state.reflectionQuestion = res.question || tr(fallbackQuestion());
     try { res.note = await withRetry(() => requestCoachingNote(key, genChain)); res.langRetry = state.langRetry; }
     catch(e) { if (e.message !== 'BAD_JSON') throw e; res.note = null; res.raw = '(invalid JSON)'; }
-    res.genModel = state.noteModel; await delay(gap);
+    res.genModel = state.noteModel; res.moveCheck = state.moveCheck; res.fixRetry = state.fixRetry || null; state.fixRetry = null; await delay(gap);
     // 2) auto checks
     res.auto = res.note ? autoChecksNote(c, res.note) : ['invalid JSON'];
     if (res.langRetry) res.auto.push('info: live language check asked once more');
+    if (res.fixRetry) res.auto.push('info: code checks asked once more (' + res.fixRetry.join(', ') + ')');
+    if (res.moveCheck) res.auto.push('info: already does this week\'s move? ' + (res.moveCheck.already ? 'yes ("' + res.moveCheck.quote + '")' : res.moveCheck.claimed ? 'model said yes, quote not found in her words' : 'no'));
     if (!res.question) res.auto.push('question failed validation');
     else if (evalScript(res.question) !== evalExpected(c.lang)) res.auto.push('question script mismatch');
     // 3) judge
