@@ -245,10 +245,21 @@ const JUDGE_CHAT_SCHEMA = { type:'OBJECT', properties:{
 const clamp2 = x => Math.max(0, Math.min(2, Math.round(Number(x) || 0)));
 
 async function judge(key, prompt, schema, chain) {
-  // the grader may think for a while: long timeout, and it may wait up to 60 s for a per-minute limit to clear
-  const r = await geminiCall(key, { contents:[{ role:'user', parts:[{ text: prompt }] }],
-    generationConfig:{ maxOutputTokens:3000, responseMimeType:'application/json', responseSchema: schema } }, chain, { timeout: 120000, maxWait: 60000 });
-  return { ...JSON.parse(r.text.replace(/```json|```/g, '').trim()), _model: r.model, _attempts: r.attempts };
+  // the grader may think for a while: long timeout, up to 60 s wait for a per-minute limit, room to finish its JSON.
+  // If a grader's reply is cut off or unreadable, the next grader in the chain is asked instead.
+  let rest = chain, trail = [];
+  while (rest.length) {
+    const r = await geminiCall(key, { contents:[{ role:'user', parts:[{ text: prompt }] }],
+      generationConfig:{ maxOutputTokens:8192, responseMimeType:'application/json', responseSchema: schema } }, rest, { timeout: 120000, maxWait: 60000 })
+      .catch(err => { err.attempts = trail.concat(err.attempts || []); throw err; });
+    trail = trail.concat(r.attempts);
+    try { return { ...JSON.parse(r.text.replace(/```json|```/g, '').trim()), _model: r.model, _attempts: trail }; }
+    catch(err) {
+      trail.push({ model: r.model, outcome: 'unreadable reply → next grader' });
+      rest = rest.slice(rest.findIndex(m => m.id === r.model) + 1);
+    }
+  }
+  const err = new Error('RATE_LIMIT'); err.attempts = trail; throw err;
 }
 
 async function withRetry(fn) {
@@ -313,6 +324,11 @@ async function runChatCase(key, c, judgeChain, gap) {
   return res;
 }
 
+function casePassed(r) { return !r.error && r.gatesPass && (r.cat === 'F' ? (r.chatScore ?? 0) >= 75 : r.expectMet !== false); }
+function markHuman(i, v) {
+  evalResults[i].human = evalResults[i].human === v ? null : v;
+  $('case-' + i).innerHTML = renderCaseResult(evalResults[i], i); renderEvalSummary(false);
+}
 function summarise(all) {
   const results = all.filter(r => !r.notJudged);   // not graded (grader limit reached) → excluded, never guessed
   const notes = results.filter(r => r.cat !== 'F'), chats = results.filter(r => r.cat === 'F');
@@ -339,6 +355,8 @@ function summarise(all) {
   if (s.chatMean !== null && s.chatMean < RELEASE.chatMean) fails.push(`chat mean ${s.chatMean} < ${RELEASE.chatMean}`);
   if (s.expectMet < RELEASE.expectMet) fails.push(`case expectations met ${Math.round(s.expectMet * 100)}% < ${RELEASE.expectMet * 100}%`);
   s.notJudged = all.length - results.length;
+  s.passed = results.filter(casePassed).length; s.graded = results.length;
+  const checked = all.filter(r => r.human); s.humanChecked = checked.length; s.humanAgree = checked.filter(r => r.human === 'agree').length;
   s.judgedBy = {}; results.forEach(r => { if (r.judgeModel) s.judgedBy[r.judgeModel] = (s.judgedBy[r.judgeModel] || 0) + 1; });
   s.graderFallbacks = results.filter(r => r.judgeTrail && r.judgeTrail.length > 1).length;
   s.backupGraded = results.filter(r => r.judgeModel === MODELS.liteOld.id).length;
@@ -379,7 +397,7 @@ function openLab() {
   renderBlocks();
   renderEvalSummary();
 }
-const GRADER_EXTRA = ['gemini-3.7-flash', 'gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3-flash', 'gemini-3-flash-preview', 'gemini-2.5-flash'].map(id => ({ id, rpm:5, ...(id.startsWith('gemini-2.5') ? {} : { thinking:'low' }) }));
+const GRADER_EXTRA = ['gemini-3.7-flash', 'gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3-flash', 'gemini-3-flash-preview', 'gemini-2.5-flash'].map(id => ({ id, rpm:5, ...(id.startsWith('gemini-2.5') ? { thinkingBudget: 1024 } : { thinking:'low' }) }));
 function renderBlocks() {
   const ids = [MODELS.flash.id, ...GRADER_EXTRA.map(m => m.id), MODELS.lite.id, MODELS.liteOld.id];
   const used = ids.filter(dailyBlocked);
@@ -405,14 +423,18 @@ function renderEvalSummary(live) {
   const d = (k, sub) => { if (!s || !prev || (live)) return ''; const a = sub ? s[sub][k] : s[k], b = sub ? (prev[sub] || {})[k] : prev[k]; if (a == null || b == null) return ''; const x = +(a - b).toFixed(2); return x ? ` <span style="color:${x > 0 ? '#2E7D4F' : 'var(--red)'}">(${x > 0 ? '+' : ''}${x})</span>` : ''; };
   box.innerHTML = `<div class="card" style="padding:12px 14px;margin-bottom:12px;">
     <p style="font-weight:600;font-size:15px;color:${cur.releaseReady ? '#2E7D4F' : 'var(--red)'};">${live ? '⏳ Running… ' : ''}${s ? '' : 'Last run: '}${cur.releaseReady ? '✅ Meets release bar' : '⛔ Not ready: ' + esc(cur.blocking.join(' · '))}</p>
+    <p style="font-size:15px;">Cases passed: <b>${cur.passed ?? '–'} of ${cur.graded ?? '–'}</b> <span class="hint">(passed = every hard check passed and the case's own expectations met)</span></p>
+    ${cur.graded && cur.passed / cur.graded >= 0.9 ? `<p style="color:var(--amber);">Almost every case passes. That usually means the cases are too easy: add harder ones, or real lessons from teachers.</p>` : ''}
+    <p>${cur.humanChecked ? `You checked ${cur.humanChecked} case(s): the grader agreed with you on <b>${cur.humanAgree}</b> (${Math.round(cur.humanAgree / cur.humanChecked * 100)}%).` : 'Check the grader: open a few cases, read the outputs, and mark whether the grader got it right.'} <span class="hint">Aim to check at least 20 before trusting the scores.</span></p>
     <p>Case expectations met <b>${Math.round((cur.expectMet || 0) * 100)}%</b> · Gates ${Math.round(cur.gatePass * 100)}%${d('gatePass')} · safety gates ${Math.round(cur.gatePassSafety * 100)}% · <b>note ${cur.noteMean ?? '–'}</b>${d('noteMean')} (min ${cur.noteMin ?? '–'}) · question ${cur.questionMean ?? '–'}${d('questionMean')} · chat ${cur.chatMean ?? '–'}${d('chatMean')}</p>
     <p class="hint">By rubric dimension (0–2): ${Object.entries(cur.dims).map(([k, v]) => `${k} ${esc(RUBRIC.note[k][0])} <b>${v ?? '–'}</b>${d(k, 'dims')}`).join(' · ')}</p>
+    ${Object.keys(cur.judgedBy || {}).length > 1 ? `<p style="color:var(--amber);">This run was graded by ${Object.keys(cur.judgedBy).length} different models (busy models were skipped). Compare its scores with other runs carefully.</p>` : ''}
     <p class="hint">Graded by: ${Object.entries(cur.judgedBy || {}).map(([k, v]) => esc(k.replace('gemini-', '')) + ' ×' + v).join(' · ') || '–'} · cases with grader retries/fallbacks: ${cur.graderFallbacks ?? '–'}${cur.backupGraded ? ` · <b>${cur.backupGraded} by backup grader</b> (less strict — read those notes yourself)` : ''}</p>
     <p class="hint">By category: ${Object.entries(cur.cats).map(([k, v]) => `${k} ${v}${d(k, 'cats')}`).join(' · ')}</p>
     ${prev && s && !live ? `<p class="hint">Compared with previous run (${esc(prev.version)}, prompt ${esc(prev.fingerprint)}, ${new Date(prev.date).toLocaleString('en-IN')}).</p>` : ''}
   </div>`;
 }
-function renderCaseResult(r) {
+function renderCaseResult(r, i) {
   if (r.notJudged) return `<div class="card" style="padding:12px 14px;margin-bottom:8px;border-left:4px solid var(--ink3);"><b>${esc(r.id)} — ${esc(r.label)}</b><div class="hint">Not graded — no grader model was available. Output kept for reading; excluded from scores.</div>${r.judgeTrail ? `<div class="hint">grader attempts: ${esc(r.judgeTrail.map(a => a.model.replace('gemini-', '') + ' ' + a.outcome).join(' → '))}</div>` : ''}<details><summary>outputs</summary><pre style="white-space:pre-wrap;font-size:12px;">${esc(r.reply || JSON.stringify(r.note, null, 2) || '')}</pre></details></div>`;
   const col = !r.gatesPass ? 'var(--red)' : (r.noteScore ?? r.chatScore) >= 80 ? '#2E7D4F' : 'var(--amber)';
   const j = r.judge || {};
@@ -429,6 +451,9 @@ function renderCaseResult(r) {
     ${gates}
     <div class="hint">${dims(r.dims)}${dims(r.qdims)}${dims(r.cdims)}</div>
     <div style="font-size:12px;color:var(--ink2);">${whys(j.note)}${whys(j.question)}${whys(j.chat)}${j.comment ? `<div><i>${esc(j.comment)}</i></div>` : ''}</div>
+    ${i !== undefined && !r.notJudged ? `<div style="display:flex;gap:8px;align-items:center;margin-top:6px;flex-wrap:wrap;"><span class="hint">Grader said <b>${casePassed(r) ? 'PASS' : 'FAIL'}</b>. Was it right?</span>
+      <button class="btn-small" style="${r.human === 'agree' ? 'background:var(--accent-l);' : ''}" onclick="markHuman(${i},'agree')">Grader right</button>
+      <button class="btn-small" style="${r.human === 'disagree' ? 'background:var(--accent-l);' : ''}" onclick="markHuman(${i},'disagree')">Grader wrong</button></div>` : ''}
     <details style="margin-top:6px;"><summary>outputs</summary><pre style="white-space:pre-wrap;font-size:12px;background:var(--surface);padding:8px;border-radius:6px;">${esc(
       r.cat === 'F' ? r.reply || '' : `QUESTION: ${r.questionRaw || ''}\n\n${r.note ? JSON.stringify(r.note, null, 2) : r.raw || ''}`)}</pre></details></div>`;
 }
@@ -446,7 +471,7 @@ async function runEval() {
   for (const c of ALL_EVAL.filter(c => cats.includes(c.cat))) {
     const slot = document.createElement('div'); slot.innerHTML = `<div class="card hint" style="padding:10px 14px;margin-bottom:8px;">${esc(c.id)} running…</div>`; $('lab-out').appendChild(slot);
     const r = c.cat === 'F' ? await runChatCase(key, c, judgeChain, gap) : await runOneCase(key, c, genChain, judgeChain, gap);
-    evalResults.push(r); slot.innerHTML = renderCaseResult(r); renderEvalSummary(true);
+    evalResults.push(r); slot.id = 'case-' + (evalResults.length - 1); slot.innerHTML = renderCaseResult(r, evalResults.length - 1); renderEvalSummary(true);
   }
   const s = summarise(evalResults);
   const runs = lsGetJSON('ss_eval_runs', []);
