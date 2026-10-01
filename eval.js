@@ -4,7 +4,7 @@
 //  EVAL HARNESS (v4.1) — open the app with #lab
 //  1) generates outputs with the REAL prompt builders   2) automatic checks
 //  3) an AI judge scores them against the rubric         4) release verdict + comparison with the last run
-//  Never touches saved sessions. See RUBRIC below — it is the single source of truth for the judge.
+//  Never touches saved sessions. See RUBRIC below — it is the single source of truth for the judge
 // ═══════════════════════════════════════════════════════════════════
 const RUBRIC = {
   gates: {
